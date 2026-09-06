@@ -19,7 +19,7 @@ export type Config = {
 export type Strategy = {
   id: string;
   name: string;
-  family: 'trend' | 'breakout' | 'reversion' | 'ml';
+  family: "trend" | "breakout" | "reversion" | "ml";
   a: number;
   b: number;
   description: string;
@@ -101,7 +101,7 @@ export function validateConfig(config: Config) {
     const [min, max] = configLimits[key];
     if (!Number.isFinite(config[key]) || config[key] < min || config[key] > max)
       throw new Error(
-        'Проверьте параметры: значение вне допустимого диапазона.',
+        "Проверьте параметры: значение вне допустимого диапазона.",
       );
   }
 }
@@ -139,27 +139,27 @@ export function demoBars(count = 1600): Bar[] {
 }
 export function parseCSV(text: string): Bar[] {
   const lines = text
-    .replace(/^\uFEFF/, '')
+    .replace(/^\uFEFF/, "")
     .trim()
     .split(/\r?\n/)
     .filter((x) => x.trim());
   if (lines.length < 301 || lines.length > 20001)
-    throw new Error('Нужно от 300 до 20 000 свечей, плюс строка заголовка.');
-  const delimiter = lines[0].includes(';') ? ';' : ',';
+    throw new Error("Нужно от 300 до 20 000 свечей, плюс строка заголовка.");
+  const delimiter = lines[0].includes(";") ? ";" : ",";
   const split = (s: string) =>
-    s.split(delimiter).map((x) => x.trim().replace(/^"(.*)"$/, '$1'));
+    s.split(delimiter).map((x) => x.trim().replace(/^"(.*)"$/, "$1"));
   const headers = split(lines[0]).map((x) => x.toLowerCase());
-  const fields = ['time', 'open', 'high', 'low', 'close'];
+  const fields = ["time", "open", "high", "low", "close"];
   const indices = fields.map((k) => headers.indexOf(k));
   if (indices.some((x) => x < 0) || new Set(headers).size !== headers.length)
     throw new Error(
-      'Заголовок CSV: time,open,high,low,close. Имена столбцов не должны повторяться.',
+      "Заголовок CSV: time,open,high,low,close. Имена столбцов не должны повторяться.",
     );
   let previous = -Infinity;
   return lines.slice(1).map((line, row) => {
     const values = split(line);
     if (values.length !== headers.length)
-      throw new Error('Строка ' + (row + 2) + ': неверное число столбцов.');
+      throw new Error("Строка " + (row + 2) + ": неверное число столбцов.");
     let raw = values[indices[0]],
       t: number;
     if (/^\d{10}(?:\d{3})?$/.test(raw))
@@ -171,56 +171,56 @@ export function parseCSV(text: string): Bar[] {
         )
       )
         throw new Error(
-          'Строка ' +
+          "Строка " +
             (row + 2) +
-            ': используйте время ISO 8601 или Unix timestamp.',
+            ": используйте время ISO 8601 или Unix timestamp.",
         );
       const day = raw.slice(0, 10),
-        calendar = Date.parse(day + 'T00:00:00Z');
+        calendar = Date.parse(day + "T00:00:00Z");
       if (
         !Number.isFinite(calendar) ||
         new Date(calendar).toISOString().slice(0, 10) !== day
       )
         throw new Error(
-          'Строка ' + (row + 2) + ': несуществующая календарная дата.',
+          "Строка " + (row + 2) + ": несуществующая календарная дата.",
         );
-      raw = raw.replace(' ', 'T');
-      if (raw.length === 10) raw += 'T00:00:00Z';
-      else if (!/(Z|[+-]\d{2}:\d{2})$/.test(raw)) raw += 'Z';
+      raw = raw.replace(" ", "T");
+      if (raw.length === 10) raw += "T00:00:00Z";
+      else if (!/(Z|[+-]\d{2}:\d{2})$/.test(raw)) raw += "Z";
       t = Date.parse(raw);
     }
     if (!Number.isFinite(t) || t <= previous)
       throw new Error(
-        'Строка ' +
+        "Строка " +
           (row + 2) +
-          ': время должно строго возрастать, без повторов.',
+          ": время должно строго возрастать, без повторов.",
       );
     previous = t;
     const [open, high, low, close] = indices
       .slice(1)
-      .map((i) => (values[i] === '' ? NaN : Number(values[i])));
+      .map((i) => (values[i] === "" ? NaN : Number(values[i])));
     if (
       [open, high, low, close].some((x) => !Number.isFinite(x) || x <= 0) ||
       high < Math.max(open, close) ||
       low > Math.min(open, close) ||
       low > high
     )
-      throw new Error('Строка ' + (row + 2) + ': некорректные OHLC-цены.');
+      throw new Error("Строка " + (row + 2) + ": некорректные OHLC-цены.");
     return { time: new Date(t).toISOString(), open, high, low, close };
   });
 }
 export const barsCSV = (bars: Bar[]) =>
-  'time,open,high,low,close\n' +
+  "time,open,high,low,close\n" +
   bars
-    .map((b) => [b.time, b.open, b.high, b.low, b.close].join(','))
-    .join('\n');
+    .map((b) => [b.time, b.open, b.high, b.low, b.close].join(","))
+    .join("\n");
 export function fingerprint(bars: Bar[]): string {
   let hash = 2166136261;
   for (const ch of barsCSV(bars)) {
     hash ^= ch.charCodeAt(0);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
 const sd = (a: number[]) => {
@@ -228,7 +228,7 @@ const sd = (a: number[]) => {
   return Math.sqrt(mean(a.map((x) => (x - m) ** 2)));
 };
 export function features(bars: Bar[], i: number): number[] {
-  if (i < 20) throw new Error('Недостаточно свечей для признаков.');
+  if (i < 20) throw new Error("Недостаточно свечей для признаков.");
   const returns = bars
       .slice(i - 19, i + 1)
       .map((b, j) => b.close / bars[i - 20 + j].close - 1),
@@ -293,52 +293,52 @@ export const strategies: Strategy[] = [
     [10, 40],
     [20, 60],
   ].map(([a, b]) => ({
-    id: 'ma-' + a + '-' + b,
-    name: 'Скользящие ' + a + ' / ' + b,
-    family: 'trend' as const,
+    id: "ma-" + a + "-" + b,
+    name: "Скользящие " + a + " / " + b,
+    family: "trend" as const,
     a,
     b,
     description:
-      'Покупка, если средняя за ' +
+      "Покупка, если средняя за " +
       a +
-      ' свечей выше средней за ' +
+      " свечей выше средней за " +
       b +
-      '; иначе продажа. Выход при смене направления или защитном уровне.',
+      "; иначе продажа. Выход при смене направления или защитном уровне.",
   })),
   ...[10, 20, 40].map((a) => ({
-    id: 'break-' + a,
-    name: 'Пробой диапазона ' + a,
-    family: 'breakout' as const,
+    id: "break-" + a,
+    name: "Пробой диапазона " + a,
+    family: "breakout" as const,
     a,
     b: 0,
     description:
-      'Покупка при закрытии выше максимума предыдущих ' +
+      "Покупка при закрытии выше максимума предыдущих " +
       a +
-      ' свечей; продажа ниже минимума. Если нового пробоя нет, выход на следующем открытии.',
+      " свечей; продажа ниже минимума. Если нового пробоя нет, выход на следующем открытии.",
   })),
   ...[1, 1.5, 2].map((b) => ({
-    id: 'mean-' + b,
-    name: 'Возврат к среднему · ' + b + 'σ',
-    family: 'reversion' as const,
+    id: "mean-" + b,
+    name: "Возврат к среднему · " + b + "σ",
+    family: "reversion" as const,
     a: 20,
     b,
     description:
-      'Покупка ниже средней за 20 свечей на ' +
+      "Покупка ниже средней за 20 свечей на " +
       b +
-      ' стандартных отклонения, продажа выше. Возврат внутрь диапазона закрывает позицию.',
+      " стандартных отклонения, продажа выше. Возврат внутрь диапазона закрывает позицию.",
   })),
   ...[0.52, 0.55, 0.6].map((a) => ({
-    id: 'ml-' + a,
-    name: 'ML · порог ' + Math.round(a * 100) + '%',
-    family: 'ml' as const,
+    id: "ml-" + a,
+    name: "ML · порог " + Math.round(a * 100) + "%",
+    family: "ml" as const,
     a,
     b: 0,
     description:
-      'Логистическая регрессия предсказывает рост следующей свечи от открытия до закрытия. Покупка при p > ' +
+      "Логистическая регрессия предсказывает рост следующей свечи от открытия до закрытия. Покупка при p > " +
       a +
-      ', продажа при p < ' +
+      ", продажа при p < " +
       (1 - a).toFixed(2) +
-      ', иначе вне рынка.',
+      ", иначе вне рынка.",
   })),
 ];
 export function decision(
@@ -349,17 +349,17 @@ export function decision(
 ): number {
   if (i < Math.max(60, s.a)) return 0;
   const close = bars[i].close;
-  if (s.family === 'ml') {
-    if (!model) throw new Error('Модель не обучена.');
+  if (s.family === "ml") {
+    if (!model) throw new Error("Модель не обучена.");
     const p = probability(model, features(bars, i));
     return p > s.a ? 1 : p < 1 - s.a ? -1 : 0;
   }
-  if (s.family === 'trend') {
+  if (s.family === "trend") {
     const fast = mean(bars.slice(i - s.a + 1, i + 1).map((b) => b.close)),
       slow = mean(bars.slice(i - s.b + 1, i + 1).map((b) => b.close));
     return fast > slow ? 1 : fast < slow ? -1 : 0;
   }
-  if (s.family === 'breakout') {
+  if (s.family === "breakout") {
     const window = bars.slice(i - s.a, i);
     return close > Math.max(...window.map((b) => b.high))
       ? 1
@@ -393,7 +393,7 @@ export function backtest(
     take: number;
   } | null = null;
   const trades: Trade[] = [],
-    equity: Result['equity'] = [];
+    equity: Result["equity"] = [];
   const cost = c.spread / 2 + c.slippage;
   const closePosition = (mid: number, time: string, reason: string) => {
     if (!position) return;
@@ -422,15 +422,15 @@ export function backtest(
     if (position) {
       const p = position;
       if (p.side * (bar.open - p.stop) <= 0) {
-        closePosition(bar.open, bar.time, 'Стоп: разрыв цены');
+        closePosition(bar.open, bar.time, "Стоп: разрыв цены");
         gapClosed = true;
       } else if (p.side * (bar.open - p.take) >= 0) {
-        closePosition(bar.open, bar.time, 'Тейк: разрыв цены');
+        closePosition(bar.open, bar.time, "Тейк: разрыв цены");
         gapClosed = true;
       }
     }
     if (position && position.side !== target)
-      closePosition(bar.open, bar.time, 'Смена сигнала');
+      closePosition(bar.open, bar.time, "Смена сигнала");
     if (!position && !gapClosed && target !== 0 && cash > 0) {
       const entry: number = bar.open + target * cost,
         quantity: number =
@@ -452,16 +452,16 @@ export function backtest(
         stopHit = p.side === 1 ? bar.low <= p.stop : bar.high >= p.stop,
         takeHit = p.side === 1 ? bar.high >= p.take : bar.low <= p.take;
       if (p.entryTime === bar.time && p.side * (bar.open - p.stop) <= 0)
-        closePosition(bar.open, bar.time, 'Стоп: уровень при входе');
+        closePosition(bar.open, bar.time, "Стоп: уровень при входе");
       else if (stopHit)
         closePosition(
           p.stop,
           bar.time,
-          takeHit ? 'Стоп: оба уровня в свече' : 'Стоп-лосс',
+          takeHit ? "Стоп: оба уровня в свече" : "Стоп-лосс",
         );
-      else if (takeHit) closePosition(p.take, bar.time, 'Тейк-профит');
+      else if (takeHit) closePosition(p.take, bar.time, "Тейк-профит");
     }
-    if (i === end - 1) closePosition(bar.close, bar.time, 'Конец периода');
+    if (i === end - 1) closePosition(bar.close, bar.time, "Конец периода");
     const value =
       cash +
       (position
@@ -488,15 +488,19 @@ export function backtest(
     finalCapital: cash,
   };
 }
-export function research(bars: Bar[], config: Config): Experiment {
+export function research(
+  bars: Bar[],
+  config: Config,
+  preferredStrategyId?: string | null,
+): Experiment {
   validateConfig(config);
   if (
     bars.some(
       (b) => b.low <= config.spread / 2 + config.slippage + config.commission,
     )
   )
-    throw new Error('Издержки слишком велики относительно цен в наборе.');
-  if (bars.length < 300) throw new Error('Нужно минимум 300 свечей.');
+    throw new Error("Издержки слишком велики относительно цен в наборе.");
+  if (bars.length < 300) throw new Error("Нужно минимум 300 свечей.");
   const trainEnd = Math.floor(bars.length * 0.6),
     validationEnd = Math.floor(bars.length * 0.8),
     model = trainModel(bars, trainEnd);
@@ -529,7 +533,13 @@ export function research(bars: Bar[], config: Config): Experiment {
     .sort(
       (a, b) => Number(b.eligible) - Number(a.eligible) || b.score - a.score,
     );
-  const selected = candidates.find((c) => c.eligible)?.strategy ?? null;
+  const selected =
+    candidates.find(
+      (candidate) =>
+        candidate.eligible && candidate.strategy.id === preferredStrategyId,
+    )?.strategy ??
+    candidates.find((candidate) => candidate.eligible)?.strategy ??
+    null;
   // Test outcomes are computed only AFTER selection; never used for ranking.
   const test = selected
     ? backtest(
@@ -542,7 +552,7 @@ export function research(bars: Bar[], config: Config): Experiment {
     : null;
   const baseline = backtest(
     bars,
-    signals.get('ma-10-40')!,
+    signals.get("ma-10-40")!,
     validationEnd,
     bars.length,
     config,
@@ -550,14 +560,14 @@ export function research(bars: Bar[], config: Config): Experiment {
   const last = bars.length - 1,
     direction = selected ? decision(bars, last, selected, model) : 0;
   const p =
-    selected?.family === 'ml' ? probability(model, features(bars, last)) : null;
+    selected?.family === "ml" ? probability(model, features(bars, last)) : null;
   const admitted =
     !!test &&
     test.returnPct > 0 &&
     test.drawdownPct <= config.maxDrawdown &&
     test.trades.length >= 5;
   return {
-    version: '1.0.0',
+    version: "1.0.0",
     createdAt: new Date().toISOString(),
     config: { ...config },
     fingerprint: fingerprint(bars),
@@ -574,37 +584,37 @@ export function research(bars: Bar[], config: Config): Experiment {
       probability: p,
       explanation: selected
         ? selected.description
-        : 'Ни один вариант не прошёл критерии валидации. Торговый сигнал не сформирован.',
+        : "Ни один вариант не прошёл критерии валидации. Торговый сигнал не сформирован.",
     },
     log: [
-      'Проверено ' +
+      "Проверено " +
         bars.length +
-        ' свечей. Разбиение по времени: ' +
+        " свечей. Разбиение по времени: " +
         trainEnd +
-        ' / ' +
+        " / " +
         (validationEnd - trainEnd) +
-        ' / ' +
+        " / " +
         (bars.length - validationEnd) +
-        '.',
-      'Логистическая регрессия обучена на ' +
+        ".",
+      "Логистическая регрессия обучена на " +
         model.samples +
-        ' примерах. Масштабирование признаков рассчитано только по обучающему периоду.',
-      'На валидации проверено 12 вариантов: 9 технических и 3 порога одной ML-модели. Критерий ранжирования: доходность минус просадка.',
+        " примерах. Масштабирование признаков рассчитано только по обучающему периоду.",
+      "На валидации проверено 12 вариантов: 9 технических и 3 порога одной ML-модели. Критерий ранжирования: доходность минус просадка.",
       selected
-        ? 'Выбрана стратегия «' +
+        ? "Выбрана стратегия «" +
           selected.name +
-          '». Параметры зафиксированы до расчёта финального теста.'
-        : 'Ни одна стратегия не прошла ограничения: прибыль > 0, минимум 5 сделок, просадка в пределах лимита.',
+          "». Параметры зафиксированы до расчёта финального теста."
+        : "Ни одна стратегия не прошла ограничения: прибыль > 0, минимум 5 сделок, просадка в пределах лимита.",
       test
-        ? 'Финальный тест: ' +
+        ? "Финальный тест: " +
           test.trades.length +
-          ' сделок, доходность ' +
+          " сделок, доходность " +
           test.returnPct.toFixed(2) +
-          '%. Результат не использовался для выбора стратегии.'
-        : 'Финальный тест кандидата не выполнялся. Рассчитана только фиксированная базовая стратегия.',
+          "%. Результат не использовался для выбора стратегии."
+        : "Финальный тест кандидата не выполнялся. Рассчитана только фиксированная базовая стратегия.",
       admitted
-        ? 'Стратегия прошла учебные критерии допуска. Сигнал рассчитан по последней исторической свече.'
-        : 'Допуск к сигналам не пройден. Решение системы: вне рынка.',
+        ? "Стратегия прошла учебные критерии допуска. Сигнал рассчитан по последней исторической свече."
+        : "Допуск к сигналам не пройден. Решение системы: вне рынка.",
     ],
   };
 }
