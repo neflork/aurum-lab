@@ -56,6 +56,7 @@ import {
 } from "@/lib/hyperliquid";
 import { analyzeMarket } from "@/lib/market-analysis";
 import { makeTradingSignal } from "@/lib/trading-signal";
+import { chartCursor, clamp, visibleRange } from "@/lib/chart-math";
 
 const fmt = (n: number, digits = 2) =>
   new Intl.NumberFormat("ru-RU", {
@@ -81,38 +82,50 @@ const download = (name: string, content: string, type = "text/plain") => {
 const tradesCSV = (result: Result) =>
   `entry_time,exit_time,side,entry,exit,quantity,pnl,reason\n${result.trades.map((trade) => [trade.entryTime, trade.exitTime, trade.side === 1 ? "BUY" : "SELL", trade.entry, trade.exit, trade.quantity, trade.pnl, trade.reason].join(",")).join("\n")}`;
 
-function CandleChart({ bars }: { bars: Bar[] }) {
-  const windowSize = Math.min(112, bars.length);
+function CandleChart({
+  bars,
+  livePrice,
+  fetchedAt,
+}: {
+  bars: Bar[];
+  livePrice: number | null;
+  fetchedAt: string | null;
+}) {
+  const [windowSize, setWindowSize] = useState(112);
   const [endOverride, setEndOverride] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const drag = useRef<{ x: number; end: number } | null>(null);
-  const end = Math.min(bars.length, endOverride ?? bars.length);
-  const offset = Math.max(0, end - windowSize);
+  const range = visibleRange(bars.length, windowSize, endOverride);
+  const { start: offset, end, count: visibleCount } = range;
   const visible = bars.slice(offset, end);
+  const atLatest = end === bars.length;
   const viewStructure = useMemo(
     () => analyzeMarket(bars.slice(0, end)),
     [bars, end],
   );
   const width = 980,
     height = 440,
-    left = 62,
-    right = 18,
-    top = 20,
-    bottom = 32;
+    left = 18,
+    right = 78,
+    top = 22,
+    bottom = 38;
   const chartWidth = width - left - right,
     chartHeight = height - top - bottom;
-  const rawLow = Math.min(...visible.map((bar) => bar.low)),
-    rawHigh = Math.max(...visible.map((bar) => bar.high));
+  const scalePrices = visible.flatMap((bar) => [bar.low, bar.high]);
+  if (atLatest && livePrice !== null) scalePrices.push(livePrice);
+  const rawLow = Math.min(...scalePrices),
+    rawHigh = Math.max(...scalePrices);
   const padding = Math.max((rawHigh - rawLow) * 0.08, 0.01),
     low = rawLow - padding,
     high = rawHigh + padding;
   const x = (index: number) =>
-    left + ((index - offset + 0.5) / visible.length) * chartWidth;
+    left + ((index - offset + 0.5) / visibleCount) * chartWidth;
   const y = (price: number) =>
     top + ((high - price) / (high - low)) * chartHeight;
   const candleWidth = Math.max(
     2,
-    Math.min(9, (chartWidth / visible.length) * 0.62),
+    Math.min(11, (chartWidth / visibleCount) * 0.68),
   );
   const pivots = viewStructure.pivots
     .filter((pivot) => pivot.index >= offset && pivot.index < end)
@@ -130,9 +143,57 @@ function CandleChart({ bars }: { bars: Bar[] }) {
     .map((pivot) => `${x(pivot.index)},${y(pivot.price)}`)
     .join(" ");
   const move = (delta: number) => {
-    const next = Math.max(windowSize, Math.min(bars.length, end + delta));
+    const next = Math.max(visibleCount, Math.min(bars.length, end + delta));
     setEndOverride(next === bars.length ? null : next);
+    setCursor(null);
   };
+  const zoom = (delta: number) => {
+    setWindowSize((current) =>
+      clamp(current + delta, 40, Math.min(320, bars.length)),
+    );
+    setCursor(null);
+  };
+  const pointerCursor = (event: React.PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pointX = ((event.clientX - bounds.left) / bounds.width) * width;
+    const pointY = ((event.clientY - bounds.top) / bounds.height) * height;
+    const mapped = chartCursor(
+      pointX,
+      pointY,
+      { left, right, top, bottom, width, height },
+      offset,
+      visibleCount,
+      low,
+      high,
+    );
+    setCursor({ x: mapped.x, y: mapped.y });
+  };
+  const selected = cursor
+    ? chartCursor(
+        cursor.x,
+        cursor.y,
+        { left, right, top, bottom, width, height },
+        offset,
+        visibleCount,
+        low,
+        high,
+      )
+    : null;
+  const selectedBar = selected ? bars[selected.index] : null;
+  const latestClosed = visible.at(-1)!;
+  const plotRight = width - right;
+  const liveY = atLatest && livePrice !== null ? y(livePrice) : null;
+  const closedY = y(latestClosed.close);
+  const closedTagY = clamp(
+    liveY !== null && Math.abs(liveY - closedY) < 24
+      ? liveY < top + chartHeight / 2
+        ? liveY + 24
+        : liveY - 24
+      : closedY,
+    top + 11,
+    height - bottom - 11,
+  );
+  const crossX = selected ? x(selected.index) : null;
   return (
     <div className="chart-explorer">
       <div className="chart-stage">
@@ -143,9 +204,15 @@ function CandleChart({ bars }: { bars: Bar[] }) {
           onWheel={(event) => {
             event.preventDefault();
             const delta = event.deltaX || event.deltaY;
-            move(
-              Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / 40)),
-            );
+            if (
+              event.shiftKey ||
+              Math.abs(event.deltaX) > Math.abs(event.deltaY)
+            )
+              move(
+                Math.sign(delta) *
+                  Math.max(1, Math.round(Math.abs(delta) / 40)),
+              );
+            else zoom(Math.sign(event.deltaY) * 12);
           }}
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -153,24 +220,40 @@ function CandleChart({ bars }: { bars: Bar[] }) {
             setDragging(true);
           }}
           onPointerMove={(event) => {
-            if (!drag.current) return;
-            const candlePixels = event.currentTarget.clientWidth / windowSize;
-            const shift = Math.round(
-              (drag.current.x - event.clientX) / candlePixels,
-            );
-            const next = Math.max(
-              windowSize,
-              Math.min(bars.length, drag.current.end + shift),
-            );
-            setEndOverride(next === bars.length ? null : next);
+            if (drag.current) {
+              const candlePixels =
+                event.currentTarget.clientWidth / visibleCount;
+              const shift = Math.round(
+                (drag.current.x - event.clientX) / candlePixels,
+              );
+              const next = Math.max(
+                visibleCount,
+                Math.min(bars.length, drag.current.end + shift),
+              );
+              setEndOverride(next === bars.length ? null : next);
+              setCursor(null);
+            } else pointerCursor(event);
           }}
-          onPointerUp={() => {
+          onPointerUp={(event) => {
             drag.current = null;
             setDragging(false);
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (
+              event.clientX >= bounds.left &&
+              event.clientX <= bounds.right &&
+              event.clientY >= bounds.top &&
+              event.clientY <= bounds.bottom
+            )
+              pointerCursor(event);
+            else setCursor(null);
           }}
           onPointerCancel={() => {
             drag.current = null;
             setDragging(false);
+            setCursor(null);
+          }}
+          onPointerLeave={() => {
+            if (!drag.current) setCursor(null);
           }}
         >
           <title>
@@ -190,37 +273,45 @@ function CandleChart({ bars }: { bars: Bar[] }) {
                   strokeDasharray="3 6"
                 />
                 <text
-                  x={left - 9}
+                  x={width - right + 10}
                   y={top + position * chartHeight + 4}
-                  textAnchor="end"
+                  textAnchor="start"
                   fill="#8392a6"
                   fontSize="11"
                 >
-                  {fmt(price, 0)}
+                  {fmt(price)}
                 </text>
               </g>
             );
           })}
+          <line
+            x1={width - right}
+            x2={width - right}
+            y1={top}
+            y2={height - bottom}
+            stroke="#30384a"
+          />
           {viewStructure.support !== null &&
             viewStructure.support >= low &&
             viewStructure.support <= high && (
               <g>
                 <line
-                  x1={left}
+                  x1={left + chartWidth * 0.72}
                   x2={width - right}
                   y1={y(viewStructure.support)}
                   y2={y(viewStructure.support)}
                   stroke="#62b99f"
                   strokeDasharray="6 5"
+                  strokeOpacity="0.62"
                 />
                 <text
                   x={width - right - 4}
                   y={y(viewStructure.support) - 6}
                   textAnchor="end"
                   fill="#76c9ae"
-                  fontSize="11"
+                  fontSize="10"
                 >
-                  поддержка {fmt(viewStructure.support)}
+                  Поддержка · {fmt(viewStructure.support)}
                 </text>
               </g>
             )}
@@ -229,21 +320,22 @@ function CandleChart({ bars }: { bars: Bar[] }) {
             viewStructure.resistance <= high && (
               <g>
                 <line
-                  x1={left}
+                  x1={left + chartWidth * 0.72}
                   x2={width - right}
                   y1={y(viewStructure.resistance)}
                   y2={y(viewStructure.resistance)}
-                  stroke="#d9b768"
+                  stroke="#ff647c"
                   strokeDasharray="6 5"
+                  strokeOpacity="0.62"
                 />
                 <text
                   x={width - right - 4}
                   y={y(viewStructure.resistance) - 6}
                   textAnchor="end"
-                  fill="#ddbb70"
-                  fontSize="11"
+                  fill="#ff8395"
+                  fontSize="10"
                 >
-                  сопротивление {fmt(viewStructure.resistance)}
+                  Сопротивление · {fmt(viewStructure.resistance)}
                 </text>
               </g>
             )}
@@ -274,6 +366,64 @@ function CandleChart({ bars }: { bars: Bar[] }) {
               </g>
             );
           })}
+          <g className="closed-price-line">
+            <line
+              x1={left}
+              x2={plotRight}
+              y1={closedY}
+              y2={closedY}
+              stroke="#9aa5bb"
+              strokeDasharray="3 5"
+              strokeOpacity="0.55"
+            />
+            <rect
+              x={plotRight}
+              y={closedTagY - 10}
+              width={right}
+              height="20"
+              fill="#343b4c"
+            />
+            <text
+              x={plotRight + right / 2}
+              y={closedTagY + 3.5}
+              textAnchor="middle"
+              fill="#dce2ed"
+              fontSize="10"
+            >
+              C {fmt(latestClosed.close)}
+            </text>
+          </g>
+          {liveY !== null && livePrice !== null && (
+            <g className="live-price-line">
+              <line
+                x1={left}
+                x2={plotRight}
+                y1={liveY}
+                y2={liveY}
+                stroke="#d7ff68"
+                strokeDasharray="2 3"
+                strokeOpacity="0.82"
+              />
+              <circle cx={plotRight} cy={liveY} r="3.5" fill="#d7ff68" />
+              <rect
+                x={plotRight}
+                y={liveY - 10}
+                width={right}
+                height="20"
+                fill="#d7ff68"
+              />
+              <text
+                x={plotRight + right / 2}
+                y={liveY + 3.5}
+                textAnchor="middle"
+                fill="#0b0e12"
+                fontWeight="750"
+                fontSize="10"
+              >
+                MID {fmt(livePrice)}
+              </text>
+            </g>
+          )}
           {trendPath && (
             <polyline
               points={trendPath}
@@ -322,6 +472,60 @@ function CandleChart({ bars }: { bars: Bar[] }) {
               </text>
             </g>
           ))}
+          {selected && selectedBar && crossX !== null && (
+            <g className="crosshair">
+              <line
+                x1={crossX}
+                x2={crossX}
+                y1={top}
+                y2={height - bottom}
+                stroke="#c7cfdd"
+                strokeDasharray="4 4"
+              />
+              <line
+                x1={left}
+                x2={plotRight}
+                y1={selected.y}
+                y2={selected.y}
+                stroke="#c7cfdd"
+                strokeDasharray="4 4"
+              />
+              <rect
+                x={plotRight}
+                y={selected.y - 11}
+                width={right}
+                height="22"
+                fill="#e5e9f1"
+              />
+              <text
+                x={plotRight + right / 2}
+                y={selected.y + 4}
+                textAnchor="middle"
+                fill="#0b0e12"
+                fontWeight="750"
+                fontSize="10"
+              >
+                {fmt(selected.price)}
+              </text>
+              <rect
+                x={clamp(crossX - 58, left, plotRight - 116)}
+                y={height - bottom}
+                width="116"
+                height={bottom - 3}
+                fill="#e5e9f1"
+              />
+              <text
+                x={clamp(crossX, left + 58, plotRight - 58)}
+                y={height - 13}
+                textAnchor="middle"
+                fill="#0b0e12"
+                fontWeight="650"
+                fontSize="10"
+              >
+                {utc(selectedBar.time, true)}
+              </text>
+            </g>
+          )}
           {[0, 0.5, 1].map((position) => (
             <text
               key={position}
@@ -337,6 +541,30 @@ function CandleChart({ bars }: { bars: Bar[] }) {
             </text>
           ))}
         </svg>
+        {selectedBar && (
+          <div className="crosshair-ohlc">
+            <strong>{utc(selectedBar.time, true)} UTC</strong>
+            <span>O {fmt(selectedBar.open)}</span>
+            <span>H {fmt(selectedBar.high)}</span>
+            <span>L {fmt(selectedBar.low)}</span>
+            <span>C {fmt(selectedBar.close)}</span>
+          </div>
+        )}
+        <div className="chart-tools" aria-label="Масштаб графика">
+          <button aria-label="Приблизить график" onClick={() => zoom(-16)}>
+            +
+          </button>
+          <button aria-label="Отдалить график" onClick={() => zoom(16)}>
+            −
+          </button>
+        </div>
+        {atLatest && livePrice !== null && fetchedAt && (
+          <div className="live-price-caption">
+            MID — текущая mid-цена Hyperliquid · обновлено{" "}
+            {utc(fetchedAt, true)}
+            UTC
+          </div>
+        )}
         {endOverride !== null && (
           <button className="return-live" onClick={() => setEndOverride(null)}>
             <LocateFixed /> К текущей цене
@@ -348,7 +576,7 @@ function CandleChart({ bars }: { bars: Bar[] }) {
         <input
           aria-label="Положение в истории"
           type="range"
-          min={windowSize}
+          min={visibleCount}
           max={bars.length}
           value={end}
           onChange={(event) => {
@@ -359,8 +587,8 @@ function CandleChart({ bars }: { bars: Bar[] }) {
         <span>{utc(visible.at(-1)!.time, true)}</span>
       </div>
       <div className="chart-navigation-hint">
-        <MousePointer2 /> Тяните график или крутите колесо · загружено{" "}
-        {bars.length} свечей
+        <MousePointer2 /> Наведение — перекрестие · колесо — масштаб · Shift +
+        колесо или перетаскивание — история · {bars.length} свечей
       </div>
     </div>
   );
@@ -653,8 +881,15 @@ export default function Home() {
                 <span className="eyebrow">LIVE MARKET · HYPERLIQUID</span>
                 <div className="quote-row">
                   <h2>xyz:GOLD</h2>
-                  <strong>{fmt(last.close)}</strong>
-                  <span>USDC / тр. унция</span>
+                  <strong>{fmt(market?.midPrice ?? last.close)}</strong>
+                  <span>
+                    {market ? "текущий mid" : "последнее закрытие"} · USDC/oz
+                  </span>
+                  {market && (
+                    <small className="closed-quote">
+                      Закрытие {fmt(last.close)} · {utc(last.time, true)} UTC
+                    </small>
+                  )}
                 </div>
               </div>
               <div className="market-meta">
@@ -662,7 +897,11 @@ export default function Home() {
                 <strong>{interval.toUpperCase()}</strong>
               </div>
             </div>
-            <CandleChart bars={bars} />
+            <CandleChart
+              bars={bars}
+              livePrice={market?.midPrice ?? null}
+              fetchedAt={market?.fetchedAt ?? null}
+            />
             <div className="chart-key">
               <span>
                 <i className="key-high" />
