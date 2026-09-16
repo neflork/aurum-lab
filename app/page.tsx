@@ -108,6 +108,20 @@ function CandleChart({
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [chartSize, setChartSize] = useState({ width: 980, height: 440 });
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    // Match chart coordinates to rendered pixels so axis labels stay legible
+    // on narrow screens instead of shrinking the desktop SVG as an image.
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setChartSize({ width, height });
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
   const drag = useRef<{
     mode: 'plot' | 'price-pan' | 'price-scale' | 'time';
     x: number;
@@ -135,9 +149,8 @@ function CandleChart({
     () => analyzeMarket(bars.slice(0, end)),
     [bars, end],
   );
-  const width = 980,
-    height = 440,
-    left = 18,
+  const { width, height } = chartSize;
+  const left = 18,
     right = 78,
     top = 22,
     bottom = 38;
@@ -409,14 +422,14 @@ function CandleChart({
                   x2={width - right}
                   y1={top + position * chartHeight}
                   y2={top + position * chartHeight}
-                  stroke="#273342"
+                  stroke="#d8e0e5"
                   strokeDasharray="3 6"
                 />
                 <text
                   x={width - right + 10}
                   y={top + position * chartHeight + 4}
                   textAnchor="start"
-                  fill="#8392a6"
+                  fill="#586976"
                   fontSize="11"
                 >
                   {fmt(price)}
@@ -429,7 +442,7 @@ function CandleChart({
             x2={width - right}
             y1={top}
             y2={height - bottom}
-            stroke="#30384a"
+            stroke="#bac8d0"
           />
           {viewStructure.support !== null &&
             viewStructure.support >= low &&
@@ -440,7 +453,7 @@ function CandleChart({
                   x2={width - right}
                   y1={y(viewStructure.support)}
                   y2={y(viewStructure.support)}
-                  stroke="#62b99f"
+                  stroke="#087765"
                   strokeDasharray="6 5"
                   strokeOpacity="0.62"
                 />
@@ -448,7 +461,7 @@ function CandleChart({
                   x={width - right - 4}
                   y={y(viewStructure.support) - 6}
                   textAnchor="end"
-                  fill="#76c9ae"
+                  fill="#087765"
                   fontSize="10"
                 >
                   Поддержка · {fmt(viewStructure.support)}
@@ -464,7 +477,7 @@ function CandleChart({
                   x2={width - right}
                   y1={y(viewStructure.resistance)}
                   y2={y(viewStructure.resistance)}
-                  stroke="#ff647c"
+                  stroke="#b34562"
                   strokeDasharray="6 5"
                   strokeOpacity="0.62"
                 />
@@ -472,7 +485,7 @@ function CandleChart({
                   x={width - right - 4}
                   y={y(viewStructure.resistance) - 6}
                   textAnchor="end"
-                  fill="#ff8395"
+                  fill="#b34562"
                   fontSize="10"
                 >
                   Сопротивление · {fmt(viewStructure.resistance)}
@@ -481,7 +494,7 @@ function CandleChart({
             )}
           {visible.map((bar, localIndex) => {
             const index = offset + localIndex,
-              color = bar.close >= bar.open ? '#6fc7ae' : '#e88989';
+              color = bar.close >= bar.open ? '#197b79' : '#b96279';
             return (
               <g key={bar.time}>
                 <line
@@ -512,7 +525,7 @@ function CandleChart({
               x2={plotRight}
               y1={closedY}
               y2={closedY}
-              stroke="#9aa5bb"
+              stroke="#647788"
               strokeDasharray="3 5"
               strokeOpacity="0.55"
             />
@@ -521,13 +534,13 @@ function CandleChart({
               y={closedTagY - 10}
               width={right}
               height="20"
-              fill="#343b4c"
+              fill="#e1e8ec"
             />
             <text
               x={plotRight + right / 2}
               y={closedTagY + 3.5}
               textAnchor="middle"
-              fill="#dce2ed"
+              fill="#233944"
               fontSize="10"
             >
               C {fmt(latestClosed.close)}
@@ -540,23 +553,23 @@ function CandleChart({
                 x2={plotRight}
                 y1={liveY}
                 y2={liveY}
-                stroke="#d7ff68"
+                stroke="#1955da"
                 strokeDasharray="2 3"
                 strokeOpacity="0.82"
               />
-              <circle cx={plotRight} cy={liveY} r="3.5" fill="#d7ff68" />
+              <circle cx={plotRight} cy={liveY} r="3.5" fill="#1955da" />
               <rect
                 x={plotRight}
                 y={liveY - 10}
                 width={right}
                 height="20"
-                fill="#d7ff68"
+                fill="#1955da"
               />
               <text
                 x={plotRight + right / 2}
                 y={liveY + 3.5}
                 textAnchor="middle"
-                fill="#0b0e12"
+                fill="#ffffff"
                 fontWeight="750"
                 fontSize="10"
               >
@@ -568,7 +581,7 @@ function CandleChart({
             <polyline
               points={trendPath}
               fill="none"
-              stroke={viewStructure.trend === 'up' ? '#38d7a7' : '#ff647c'}
+              stroke={viewStructure.trend === 'up' ? '#087765' : '#b34562'}
               strokeWidth="2.5"
               strokeDasharray="8 5"
             />
@@ -579,13 +592,13 @@ function CandleChart({
                 cx={x(pivot.index)}
                 cy={y(pivot.price)}
                 r="3.5"
-                fill={pivot.kind === 'high' ? '#ddbb70' : '#76c9ae'}
+                fill={pivot.kind === 'high' ? '#8c661b' : '#087765'}
               />
               <text
                 x={x(pivot.index)}
                 y={y(pivot.price) + (pivot.kind === 'high' ? -8 : 15)}
                 textAnchor="middle"
-                fill={pivot.kind === 'high' ? '#ddbb70' : '#76c9ae'}
+                fill={pivot.kind === 'high' ? '#8c661b' : '#087765'}
                 fontSize="10"
               >
                 {pivot.kind === 'high' ? 'H' : 'L'}
@@ -598,13 +611,13 @@ function CandleChart({
                 cx={x(event.index)}
                 cy={y(bars[event.index].close)}
                 r="7"
-                fill={event.kind.includes('reclaim') ? '#a78bda' : '#5eaed6'}
+                fill={event.kind.includes('reclaim') ? '#8b62b0' : '#337eb8'}
               />
               <text
                 x={x(event.index)}
                 y={y(bars[event.index].close) + 3.5}
                 textAnchor="middle"
-                fill="#0d1117"
+                fill="#ffffff"
                 fontWeight="700"
                 fontSize="9"
               >
@@ -619,7 +632,7 @@ function CandleChart({
                 x2={crossX}
                 y1={top}
                 y2={height - bottom}
-                stroke="#c7cfdd"
+                stroke="#596c7d"
                 strokeDasharray="4 4"
               />
               <line
@@ -627,7 +640,7 @@ function CandleChart({
                 x2={plotRight}
                 y1={selected.y}
                 y2={selected.y}
-                stroke="#c7cfdd"
+                stroke="#596c7d"
                 strokeDasharray="4 4"
               />
               <rect
@@ -635,13 +648,13 @@ function CandleChart({
                 y={selected.y - 11}
                 width={right}
                 height="22"
-                fill="#e5e9f1"
+                fill="#263944"
               />
               <text
                 x={plotRight + right / 2}
                 y={selected.y + 4}
                 textAnchor="middle"
-                fill="#0b0e12"
+                fill="#ffffff"
                 fontWeight="750"
                 fontSize="10"
               >
@@ -652,13 +665,13 @@ function CandleChart({
                 y={height - bottom}
                 width="116"
                 height={bottom - 3}
-                fill="#e5e9f1"
+                fill="#263944"
               />
               <text
                 x={clamp(crossX, left + 58, plotRight - 58)}
                 y={height - 13}
                 textAnchor="middle"
-                fill="#0b0e12"
+                fill="#ffffff"
                 fontWeight="650"
                 fontSize="10"
               >
@@ -674,7 +687,7 @@ function CandleChart({
               textAnchor={
                 position === 0 ? 'start' : position === 1 ? 'end' : 'middle'
               }
-              fill="#8392a6"
+              fill="#586976"
               fontSize="11"
             >
               {utc(visible[Math.round(position * (visible.length - 1))].time)}
@@ -992,14 +1005,14 @@ export default function Home() {
     <main className="shell">
       <header className="topbar">
         <div className="brand">
-          ◈{' '}
+          <span className="brand-symbol" aria-hidden="true">
+            ✳
+          </span>
           <span>
-            AURUM<span className="brand-light">LAB</span>
+            AURUM<span className="brand-light">/ LAB</span>
           </span>
         </div>
-        <span className="top-caption">
-          Интеллектуальная система поиска стратегий
-        </span>
+        <span className="top-caption">Лаборатория рыночных исследований</span>
         <span className="live-pill">
           <i className={market ? 'online' : ''} />
           {loading
@@ -1011,13 +1024,60 @@ export default function Home() {
       </header>
       <div className="workspace">
         <div className="page-heading">
-          <div>
-            <div className="eyebrow">AGENT WORKSPACE / XYZ:GOLD</div>
-            <h1>Gold futures intelligence</h1>
-            <p>
-              Направление, подтверждение и сценарий для perpetual-фьючерса
-              xyz:GOLD по закрытым свечам.
-            </p>
+          <div className="heading-copy">
+            <div className="eyebrow">
+              RESEARCH TERMINAL <span>/</span> XYZ:GOLD
+            </div>
+            <h1>
+              За пределами <span>шума.</span>
+            </h1>
+            <p>Золото. Структура рынка. Проверяемые стратегии.</p>
+          </div>
+          <div className="heading-schematic" aria-hidden="true">
+            <div className="schematic-blue" />
+            <svg viewBox="0 0 450 170" fill="none">
+              <path
+                d="M0 142H105L152 95H450M0 151H112L163 101H450M70 0V170M304 0V170M0 39H450M0 124H450"
+                stroke="currentColor"
+                strokeWidth=".6"
+              />
+              <g transform="translate(275 84) rotate(-24)">
+                <ellipse rx="143" ry="43" stroke="currentColor" />
+                <ellipse
+                  rx="112"
+                  ry="65"
+                  stroke="currentColor"
+                  strokeWidth=".6"
+                />
+                <ellipse
+                  rx="67"
+                  ry="80"
+                  stroke="currentColor"
+                  strokeWidth=".6"
+                />
+                <path
+                  d="M-160 0H160M0-92V92"
+                  stroke="currentColor"
+                  strokeWidth=".6"
+                />
+                <circle r="8" fill="currentColor" />
+              </g>
+              <path
+                d="M25 24H47M36 13V35M399 140H421M410 129V151"
+                stroke="currentColor"
+              />
+            </svg>
+            <span className="schematic-label">
+              Au / 79
+              <br />
+              MARKET STRUCTURE
+            </span>
+            <span className="schematic-index">01—∞</span>
+          </div>
+        </div>
+        <div className="workspace-toolbar">
+          <div className="workspace-label">
+            <span>01</span> Обзор рынка <small>/ MARKET OVERVIEW</small>
           </div>
           <div className="heading-actions">
             <Select
@@ -1062,7 +1122,7 @@ export default function Home() {
           <div className="panel chart-panel">
             <div className="chart-head">
               <div>
-                <span className="eyebrow">LIVE MARKET · HYPERLIQUID</span>
+                <span className="eyebrow">01.1 / HYPERLIQUID · GOLD</span>
                 <div className="quote-row">
                   <h2>xyz:GOLD</h2>
                   <strong>{fmt(market?.midPrice ?? last.close)}</strong>
@@ -1205,7 +1265,9 @@ export default function Home() {
             </section>
             <section className="panel structure-card">
               <div className="panel-title">
-                <h2>Структура цены</h2>
+                <h2>
+                  <span className="section-index">02 /</span> Структура цены
+                </h2>
                 <span className={`trend-chip ${structure.trend}`}>
                   {structure.trendLabel}
                 </span>
@@ -1279,7 +1341,10 @@ export default function Home() {
             <section className="panel tab-panel">
               <div className="panel-title">
                 <div>
-                  <h2>Результаты автоматического поиска</h2>
+                  <h2>
+                    <span className="section-index">03 /</span> Результаты
+                    поиска
+                  </h2>
                   <p className="section-description">
                     12 вариантов ранжируются на валидации; финальный период не
                     участвует в выборе.
