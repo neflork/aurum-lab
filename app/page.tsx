@@ -101,12 +101,13 @@ function CandleChart({
   const [endOverride, setEndOverride] = useState<number | null>(null);
   const [priceScale, setPriceScale] = useState(1);
   const [priceOffset, setPriceOffset] = useState(0);
+  const [priceAxisMode, setPriceAxisMode] = useState<'pan' | 'scale'>('pan');
   const [dragging, setDragging] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{
-    mode: 'plot' | 'price' | 'time';
+    mode: 'plot' | 'price-pan' | 'price-scale' | 'time';
     x: number;
     y: number;
     end: number;
@@ -169,6 +170,14 @@ function CandleChart({
     );
     setWindowSize(next.count);
     setEndOverride(next.end === bars.length ? null : next.end);
+    setCursor(null);
+  };
+  const resetView = () => {
+    setWindowSize(112);
+    setEndOverride(null);
+    setPriceScale(1);
+    setPriceOffset(0);
+    setPriceAxisMode('pan');
     setCursor(null);
   };
   const pointInChart = (clientX: number, clientY: number) => {
@@ -268,13 +277,15 @@ function CandleChart({
           ref={svgRef}
           className={`candle-chart ${dragging ? 'is-dragging' : ''}`}
           viewBox={`0 0 ${width} ${height}`}
-          aria-label="Интерактивный свечной график xyz:GOLD. Перетаскивайте поле для перемещения, правую шкалу для масштаба цены, нижнюю шкалу для масштаба времени."
+          aria-label="Интерактивный свечной график xyz:GOLD. Перетаскивайте поле для перемещения, правую шкалу для сдвига или масштаба цены, нижнюю шкалу для масштаба времени."
           onPointerDown={(event) => {
             const point = pointInChart(event.clientX, event.clientY);
             if (!point) return;
             const mode =
               point.x >= width - right
-                ? 'price'
+                ? priceAxisMode === 'pan'
+                  ? 'price-pan'
+                  : 'price-scale'
                 : point.y >= height - bottom
                   ? 'time'
                   : 'plot';
@@ -315,7 +326,13 @@ function CandleChart({
                     ((event.clientY - started.y) / (chartHeight * svgScale)) *
                       started.span,
                 );
-              } else if (started.mode === 'price') {
+              } else if (started.mode === 'price-pan') {
+                setPriceOffset(
+                  started.offset +
+                    ((event.clientY - started.y) / (chartHeight * svgScale)) *
+                      started.span,
+                );
+              } else if (started.mode === 'price-scale') {
                 const delta = (event.clientY - started.y) / svgScale;
                 setPriceScale(
                   clamp(started.scale * Math.exp(delta / 170), 0.2, 8),
@@ -368,8 +385,9 @@ function CandleChart({
         >
           <title>
             Перемещение по графику — горизонтально и вертикально. Правая шкала
-            меняет масштаб цены, нижняя — масштаб времени. Экстремумы
-            подтверждаются тремя следующими свечами.
+            сдвигает или масштабирует цену в зависимости от выбранного режима,
+            нижняя меняет масштаб времени. Экстремумы подтверждаются тремя
+            следующими свечами.
           </title>
           {[0, 0.25, 0.5, 0.75, 1].map((position) => {
             const price = high - position * (high - low);
@@ -661,6 +679,7 @@ function CandleChart({
           />
           <rect
             className="chart-price-axis-hitbox"
+            style={{ cursor: priceAxisMode === 'pan' ? 'grab' : 'ns-resize' }}
             x={plotRight}
             y={0}
             width={right}
@@ -677,12 +696,30 @@ function CandleChart({
             <span>C {fmt(selectedBar.close)}</span>
           </div>
         )}
-        <div className="chart-tools" aria-label="Масштаб графика">
+        <div className="chart-tools" aria-label="Управление графиком">
           <button aria-label="Приблизить график" onClick={() => zoom(-16)}>
             +
           </button>
           <button aria-label="Отдалить график" onClick={() => zoom(16)}>
             −
+          </button>
+          <button
+            className="chart-tool-reset"
+            aria-label="Сбросить положение и масштаб графика"
+            title="Сбросить положение и масштаб графика"
+            onClick={resetView}
+          >
+            ↺ <span>Сбросить вид</span>
+          </button>
+          <button
+            className="chart-tool-mode"
+            aria-label={`Режим правой шкалы: ${priceAxisMode === 'pan' ? 'сдвиг цены' : 'масштаб цены'}. Переключить режим`}
+            title="Переключить действие при перетаскивании правой шкалы"
+            onClick={() =>
+              setPriceAxisMode((mode) => (mode === 'pan' ? 'scale' : 'pan'))
+            }
+          >
+            Цена: {priceAxisMode === 'pan' ? 'сдвиг' : 'масштаб'}
           </button>
         </div>
         {atLatest && livePrice !== null && fetchedAt && (
@@ -714,9 +751,10 @@ function CandleChart({
         <span>{utc(visible.at(-1)!.time, true)}</span>
       </div>
       <div className="chart-navigation-hint">
-        <MousePointer2 /> Тяните поле — перемещение · правую шкалу — масштаб
-        цены · нижнюю шкалу или колесо — масштаб времени · двойной клик по шкале
-        — сброс · {bars.length} свечей
+        <MousePointer2 /> Тяните поле — перемещение · правую шкалу — сдвиг или
+        масштаб цены (переключатель сверху) · нижнюю шкалу или колесо — масштаб
+        времени · кнопка «Сбросить вид» возвращает исходный график ·{' '}
+        {bars.length} свечей
       </div>
     </div>
   );

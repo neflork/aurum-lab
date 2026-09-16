@@ -49,7 +49,12 @@ body {
     radial-gradient(circle at 0 45%, #163c3750 0, transparent 30%),
     var(--background);
   color: var(--foreground);
-  font: 16px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font:
+    16px/1.55 Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 button,
 input {
@@ -307,6 +312,26 @@ h3 {
 .chart-tools button:hover {
   border-color: #d7ff6855;
   color: #d7ff68;
+}
+.chart-tools .chart-tool-reset,
+.chart-tools .chart-tool-mode {
+  width: auto;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chart-tools .chart-tool-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chart-tools .chart-tool-reset span {
+  font-size: 11px;
+}
+.chart-tools .chart-tool-mode {
+  color: #d7ff68;
+  border-color: #d7ff6833;
 }
 .live-price-caption {
   position: absolute;
@@ -966,6 +991,9 @@ h3 {
   }
   .candle-chart {
     height: 340px;
+  }
+  .chart-tools .chart-tool-reset span {
+    display: none;
   }
   .metric-grid {
     grid-template-columns: 1fr 1fr;
