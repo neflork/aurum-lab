@@ -2,6 +2,9 @@ import type { Bar } from './engine.ts';
 import type { MarketStructure } from './market-analysis.ts';
 
 export type MarketRead = {
+  source?: 'ai' | 'proxy';
+  commentary?: string;
+  aiError?: string;
   bias: 'up' | 'down' | 'range';
   biasLabel: string;
   dayOpen: number;
@@ -60,6 +63,7 @@ export function analyzeMarketRead(
     Math.min(100, 42 + Math.abs(biasVote) * 16 + Math.abs(pressure) * 22),
   );
   return {
+    source: 'proxy',
     bias,
     biasLabel,
     dayOpen,

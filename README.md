@@ -110,3 +110,4 @@ OHLC трактуются как midpoint в USD за тройскую унци�
 - https://docs.trade.xyz/consolidated-resources/specification-index
 - https://docs.trade.xyz/asset-directory/commodities
 - Кнопка «Анализ рынка» рассчитывает направление по структуре, открытию текущего UTC-дня и прокси order flow по свечам. SMT помечается как прокси, потому что для настоящего SMT нужен второй синхронный инструмент.
+- Для анализа через Codex локально выполни npm run ai:login, затем в отдельном окне npm run ai:bridge. Кнопка сначала обращается к локальному OAuth-мосту, а при его отсутствии использует встроенный OHLC-прокси. Токены не попадают в сайт и хранятся локально через oauth-codex.

@@ -656,6 +656,17 @@ h3 {
   font-size: 9px;
   line-height: 1.45;
 }
+.market-read-commentary {
+  padding-top: 8px;
+  border-top: 1px solid #ffffff0d;
+  color: #aab5c6;
+  font-size: 10px;
+}
+.market-read-warning {
+  display: block;
+  margin-top: 8px;
+  color: #d9b977 !important;
+}
 .explanation {
   font-size: 13px;
   color: #4c5b66;

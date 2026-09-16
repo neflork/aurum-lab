@@ -826,6 +826,7 @@ export default function Home() {
   const [config, setConfig] = useState<Config>({ ...defaults });
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [marketRead, setMarketRead] = useState<MarketRead | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [loading, setLoading] = useState(true),
     [calculating, setCalculating] = useState(false),
     [error, setError] = useState('');
@@ -981,7 +982,53 @@ export default function Home() {
     () => makeTradingSignal(bars, experiment, structure),
     [bars, experiment, structure],
   );
-  const runMarketRead = () => setMarketRead(analyzeMarketRead(bars, structure));
+  const runMarketRead = async () => {
+    const fallback = analyzeMarketRead(bars, structure);
+    setMarketRead(fallback);
+    setAiAnalyzing(true);
+    try {
+      const response = await fetch('http://127.0.0.1:8787/analyze', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt:
+            'Проанализируй закрытые бары xyz:GOLD для учебной платформы. Определи направление рынка, направление от открытия текущего UTC-дня, свечной order-flow proxy и SMT proxy. Объясни сценарий и условия отмены. Данные: ' +
+            JSON.stringify({
+              bars: bars.slice(-80),
+              structure: {
+                trend: structure.trend,
+                support: structure.support,
+                resistance: structure.resistance,
+                recentEvents: structure.events.slice(-6),
+              },
+            }),
+        }),
+      });
+      if (!response.ok) throw new Error('Локальный Codex bridge недоступен.');
+      const payload = (await response.json()) as { text?: string };
+      const raw = payload.text?.match(/\{[\s\S]*\}/)?.[0];
+      if (!raw) throw new Error('Codex вернул ответ не в JSON-формате.');
+      const parsed = JSON.parse(raw) as Partial<MarketRead>;
+      if (!['up', 'down', 'range'].includes(String(parsed.bias)))
+        throw new Error('Codex вернул неизвестное направление.');
+      setMarketRead({
+        ...fallback,
+        ...parsed,
+        source: 'ai',
+        commentary: parsed.commentary ?? payload.text,
+      });
+    } catch (error) {
+      setMarketRead({
+        ...fallback,
+        aiError:
+          error instanceof Error
+            ? error.message
+            : 'Локальный Codex bridge не подключён.',
+      });
+    } finally {
+      setAiAnalyzing(false);
+    }
+  };
   const exportReport = () =>
     experiment &&
     download(
@@ -1104,9 +1151,12 @@ export default function Home() {
               <RefreshCw className={loading ? 'spinning' : ''} />
               Обновить
             </Button>
-            <Button onClick={runMarketRead} disabled={loading}>
+            <Button
+              onClick={() => void runMarketRead()}
+              disabled={loading || aiAnalyzing}
+            >
               <ScanSearch />
-              Анализ рынка
+              {aiAnalyzing ? 'Codex анализирует…' : 'Анализ рынка'}
             </Button>
           </div>
         </div>
@@ -1197,7 +1247,11 @@ export default function Home() {
                   aria-label="Результат анализа рынка"
                 >
                   <div className="market-read-head">
-                    <span>АНАЛИЗ ПОСЛЕДНИХ БАРОВ</span>
+                    <span>
+                      {marketRead.source === 'ai'
+                        ? 'АНАЛИЗ CODEX AI'
+                        : 'АНАЛИЗ ПОСЛЕДНИХ БАРОВ · ПРОКСИ'}
+                    </span>
                     <b
                       className={
                         marketRead.bias === 'up'
@@ -1226,6 +1280,16 @@ export default function Home() {
                   </div>
                   <p>{marketRead.scenario}</p>
                   <small>{marketRead.reasons.join(' · ')}</small>
+                  {marketRead.commentary && (
+                    <p className="market-read-commentary">
+                      {marketRead.commentary}
+                    </p>
+                  )}
+                  {marketRead.aiError && (
+                    <small className="market-read-warning">
+                      {marketRead.aiError}
+                    </small>
+                  )}
                 </div>
               )}
               <div className="decision-copy">
