@@ -13,6 +13,7 @@ import {
   LocateFixed,
   MousePointer2,
   RefreshCw,
+  ScanSearch,
   Settings2,
   ShieldCheck,
   Upload,
@@ -56,6 +57,7 @@ import {
 } from '@/lib/hyperliquid';
 import { analyzeMarket } from '@/lib/market-analysis';
 import { makeTradingSignal } from '@/lib/trading-signal';
+import { analyzeMarketRead, type MarketRead } from '@/lib/market-read';
 import {
   chartCursor,
   clamp,
@@ -810,6 +812,7 @@ export default function Home() {
   const [interval, setIntervalValue] = useState<HLInterval>('1h');
   const [config, setConfig] = useState<Config>({ ...defaults });
   const [experiment, setExperiment] = useState<Experiment | null>(null);
+  const [marketRead, setMarketRead] = useState<MarketRead | null>(null);
   const [loading, setLoading] = useState(true),
     [calculating, setCalculating] = useState(false),
     [error, setError] = useState('');
@@ -965,6 +968,7 @@ export default function Home() {
     () => makeTradingSignal(bars, experiment, structure),
     [bars, experiment, structure],
   );
+  const runMarketRead = () => setMarketRead(analyzeMarketRead(bars, structure));
   const exportReport = () =>
     experiment &&
     download(
@@ -975,6 +979,7 @@ export default function Home() {
           market: market ? { ...market, bars: undefined } : null,
           bars,
           structure,
+          marketRead,
           experiment,
         },
         null,
@@ -1038,6 +1043,10 @@ export default function Home() {
             >
               <RefreshCw className={loading ? 'spinning' : ''} />
               Обновить
+            </Button>
+            <Button onClick={runMarketRead} disabled={loading}>
+              <ScanSearch />
+              Анализ рынка
             </Button>
           </div>
         </div>
@@ -1122,6 +1131,43 @@ export default function Home() {
                   </i>
                 </div>
               </div>
+              {marketRead && (
+                <div
+                  className="market-read"
+                  aria-label="Результат анализа рынка"
+                >
+                  <div className="market-read-head">
+                    <span>АНАЛИЗ ПОСЛЕДНИХ БАРОВ</span>
+                    <b
+                      className={
+                        marketRead.bias === 'up'
+                          ? 'market-read-bias up'
+                          : marketRead.bias === 'down'
+                            ? 'market-read-bias down'
+                            : 'market-read-bias range'
+                      }
+                    >
+                      {marketRead.biasLabel}
+                    </b>
+                  </div>
+                  <div className="market-read-grid">
+                    <span>
+                      Открытие дня <b>{fmt(marketRead.dayOpen)}</b>
+                    </span>
+                    <span>
+                      Order flow <b>{marketRead.flowLabel}</b>
+                    </span>
+                    <span>
+                      SMT <b>{marketRead.smtLabel}</b>
+                    </span>
+                    <span>
+                      Уверенность <b>{marketRead.confidence}/100</b>
+                    </span>
+                  </div>
+                  <p>{marketRead.scenario}</p>
+                  <small>{marketRead.reasons.join(' · ')}</small>
+                </div>
+              )}
               <div className="decision-copy">
                 <span>Что делать</span>
                 <p>{tradingSignal.action}</p>

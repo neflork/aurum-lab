@@ -109,3 +109,4 @@ OHLC трактуются как midpoint в USD за тройскую унци�
 - https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#candle-snapshot
 - https://docs.trade.xyz/consolidated-resources/specification-index
 - https://docs.trade.xyz/asset-directory/commodities
+- Кнопка «Анализ рынка» рассчитывает направление по структуре, открытию текущего UTC-дня и прокси order flow по свечам. SMT помечается как прокси, потому что для настоящего SMT нужен второй синхронный инструмент.

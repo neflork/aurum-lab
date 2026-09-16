@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmedPivots, analyzeMarket } from '../lib/market-analysis.ts';
+import { analyzeMarketRead } from '../lib/market-read.ts';
 
 const bar = (index, open, high, low, close) => ({
   time: new Date(Date.UTC(2025, 0, 1, index)).toISOString(),
@@ -64,4 +65,19 @@ test('future candles cannot change an event computed for an earlier prefix', () 
     analyzeMarket(changed).events.filter((event) => event.index < 18),
     prefix,
   );
+});
+
+test('market read combines structure, day open and candle pressure', () => {
+  const bars = Array.from({ length: 40 }, (_, i) => ({
+    time: new Date(Date.UTC(2026, 8, 16, i)).toISOString(),
+    open: 100 + i,
+    high: 103 + i,
+    low: 99 + i,
+    close: 102 + i,
+  }));
+  const read = analyzeMarketRead(bars, analyzeMarket(bars));
+  assert.equal(read.dayOpen, 124);
+  assert.equal(read.bias, 'up');
+  assert.equal(read.flow, 'buying');
+  assert.match(read.scenario, /long/);
 });

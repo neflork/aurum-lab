@@ -602,6 +602,60 @@ h3 {
   border-left: 2px solid #d7ff68;
   padding-left: 9px;
 }
+.market-read {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #d7ff6826;
+  border-radius: 10px;
+  background: #10171caa;
+}
+.market-read-head,
+.market-read-grid {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.market-read-head {
+  color: #9da8b9;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.market-read-bias {
+  color: #d7ff68;
+  text-transform: uppercase;
+}
+.market-read-bias.down {
+  color: #ff8395;
+}
+.market-read-bias.range {
+  color: #d9b977;
+}
+.market-read-grid {
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: #8c98ab;
+  font-size: 10px;
+}
+.market-read-grid span {
+  flex: 1 1 44%;
+}
+.market-read-grid b {
+  display: block;
+  margin-top: 3px;
+  color: #edf1f8;
+  font-size: 11px;
+}
+.market-read p {
+  margin: 11px 0 7px;
+  color: #dce2ed;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.market-read small {
+  color: #6f7b8f;
+  font-size: 9px;
+  line-height: 1.45;
+}
 .explanation {
   font-size: 13px;
   color: #aeb9c7;
