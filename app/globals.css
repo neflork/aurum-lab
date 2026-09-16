@@ -237,6 +237,12 @@ h3 {
 .candle-chart.is-dragging {
   cursor: grabbing;
 }
+.chart-price-axis-hitbox {
+  cursor: ns-resize;
+}
+.chart-time-axis-hitbox {
+  cursor: ew-resize;
+}
 .chart-stage {
   position: relative;
   background: linear-gradient(180deg, #0a0e17aa, #10162255);
@@ -244,6 +250,7 @@ h3 {
   border-radius: 14px;
   margin-top: 18px;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 .crosshair {
   pointer-events: none;

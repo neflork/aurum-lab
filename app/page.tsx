@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownToLine,
@@ -17,17 +17,17 @@ import {
   ShieldCheck,
   Upload,
   X,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -35,7 +35,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from '@/components/ui/table';
 import {
   defaults,
   configLimits,
@@ -48,39 +48,45 @@ import {
   type Config,
   type Experiment,
   type Result,
-} from "@/lib/engine";
+} from '@/lib/engine';
 import {
   loadHyperliquid,
   type HLInterval,
   type MarketDataset,
-} from "@/lib/hyperliquid";
-import { analyzeMarket } from "@/lib/market-analysis";
-import { makeTradingSignal } from "@/lib/trading-signal";
-import { chartCursor, clamp, visibleRange } from "@/lib/chart-math";
+} from '@/lib/hyperliquid';
+import { analyzeMarket } from '@/lib/market-analysis';
+import { makeTradingSignal } from '@/lib/trading-signal';
+import {
+  chartCursor,
+  clamp,
+  priceViewport,
+  scaleTimeAt,
+  visibleRange,
+} from '@/lib/chart-math';
 
 const fmt = (n: number, digits = 2) =>
-  new Intl.NumberFormat("ru-RU", {
+  new Intl.NumberFormat('ru-RU', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(n);
-const pct = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}%`;
+const pct = (n: number) => `${n > 0 ? '+' : ''}${fmt(n)}%`;
 const utc = (value: string, full = false) =>
-  new Date(value).toLocaleString("ru-RU", {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "2-digit",
-    ...(full ? { year: "numeric", hour: "2-digit", minute: "2-digit" } : {}),
+  new Date(value).toLocaleString('ru-RU', {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: '2-digit',
+    ...(full ? { year: 'numeric', hour: '2-digit', minute: '2-digit' } : {}),
   });
-const download = (name: string, content: string, type = "text/plain") => {
+const download = (name: string, content: string, type = 'text/plain') => {
   const url = URL.createObjectURL(new Blob([content], { type }));
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 const tradesCSV = (result: Result) =>
-  `entry_time,exit_time,side,entry,exit,quantity,pnl,reason\n${result.trades.map((trade) => [trade.entryTime, trade.exitTime, trade.side === 1 ? "BUY" : "SELL", trade.entry, trade.exit, trade.quantity, trade.pnl, trade.reason].join(",")).join("\n")}`;
+  `entry_time,exit_time,side,entry,exit,quantity,pnl,reason\n${result.trades.map((trade) => [trade.entryTime, trade.exitTime, trade.side === 1 ? 'BUY' : 'SELL', trade.entry, trade.exit, trade.quantity, trade.pnl, trade.reason].join(',')).join('\n')}`;
 
 function CandleChart({
   bars,
@@ -93,9 +99,22 @@ function CandleChart({
 }) {
   const [windowSize, setWindowSize] = useState(112);
   const [endOverride, setEndOverride] = useState<number | null>(null);
+  const [priceScale, setPriceScale] = useState(1);
+  const [priceOffset, setPriceOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
-  const drag = useRef<{ x: number; end: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const drag = useRef<{
+    mode: 'plot' | 'price' | 'time';
+    x: number;
+    y: number;
+    end: number;
+    count: number;
+    scale: number;
+    offset: number;
+    span: number;
+  } | null>(null);
   const range = visibleRange(bars.length, windowSize, endOverride);
   const { start: offset, end, count: visibleCount } = range;
   const visible = bars.slice(offset, end);
@@ -116,9 +135,7 @@ function CandleChart({
   if (atLatest && livePrice !== null) scalePrices.push(livePrice);
   const rawLow = Math.min(...scalePrices),
     rawHigh = Math.max(...scalePrices);
-  const padding = Math.max((rawHigh - rawLow) * 0.08, 0.01),
-    low = rawLow - padding,
-    high = rawHigh + padding;
+  const { low, high } = priceViewport(rawLow, rawHigh, priceScale, priceOffset);
   const x = (index: number) =>
     left + ((index - offset + 0.5) / visibleCount) * chartWidth;
   const y = (price: number) =>
@@ -134,32 +151,40 @@ function CandleChart({
     .filter((event) => event.index >= offset && event.index < end)
     .slice(-12);
   const trendPivots =
-    viewStructure.trend === "up"
-      ? pivots.filter((pivot) => pivot.kind === "low").slice(-3)
-      : viewStructure.trend === "down"
-        ? pivots.filter((pivot) => pivot.kind === "high").slice(-3)
+    viewStructure.trend === 'up'
+      ? pivots.filter((pivot) => pivot.kind === 'low').slice(-3)
+      : viewStructure.trend === 'down'
+        ? pivots.filter((pivot) => pivot.kind === 'high').slice(-3)
         : [];
   const trendPath = trendPivots
     .map((pivot) => `${x(pivot.index)},${y(pivot.price)}`)
-    .join(" ");
-  const move = (delta: number) => {
-    const next = Math.max(visibleCount, Math.min(bars.length, end + delta));
-    setEndOverride(next === bars.length ? null : next);
-    setCursor(null);
-  };
-  const zoom = (delta: number) => {
-    setWindowSize((current) =>
-      clamp(current + delta, 40, Math.min(320, bars.length)),
+    .join(' ');
+  const zoom = (delta: number, fraction = 0.5) => {
+    const next = scaleTimeAt(
+      bars.length,
+      offset,
+      visibleCount,
+      visibleCount + delta,
+      fraction,
     );
+    setWindowSize(next.count);
+    setEndOverride(next.end === bars.length ? null : next.end);
     setCursor(null);
   };
-  const pointerCursor = (event: React.PointerEvent<SVGSVGElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const pointX = ((event.clientX - bounds.left) / bounds.width) * width;
-    const pointY = ((event.clientY - bounds.top) / bounds.height) * height;
+  const pointInChart = (clientX: number, clientY: number) => {
+    const matrix = svgRef.current?.getScreenCTM();
+    if (!matrix) return null;
+    const point = new DOMPoint(clientX, clientY).matrixTransform(
+      matrix.inverse(),
+    );
+    return { x: point.x, y: point.y };
+  };
+  const pointerCursor = (clientX: number, clientY: number) => {
+    const point = pointInChart(clientX, clientY);
+    if (!point) return;
     const mapped = chartCursor(
-      pointX,
-      pointY,
+      point.x,
+      point.y,
       { left, right, top, bottom, width, height },
       offset,
       visibleCount,
@@ -168,6 +193,48 @@ function CandleChart({
     );
     setCursor({ x: mapped.x, y: mapped.y });
   };
+  useEffect(() => {
+    const stage = stageRef.current;
+    const svg = svgRef.current;
+    if (!stage || !svg) return;
+    // React's wheel listener may be passive; the native non-passive listener
+    // keeps trackpad zoom from scrolling the page at the same time.
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const matrix = svg.getScreenCTM();
+      const point = matrix
+        ? new DOMPoint(event.clientX, event.clientY).matrixTransform(
+            matrix.inverse(),
+          )
+        : null;
+      if (!point) return;
+      const horizontal =
+        event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      if (horizontal) {
+        const delta = event.deltaX || event.deltaY;
+        const shift =
+          Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / 40));
+        const next = clamp(end + shift, visibleCount, bars.length);
+        setEndOverride(next === bars.length ? null : next);
+      } else {
+        const fraction = clamp((point.x - left) / chartWidth, 0, 1);
+        const next = scaleTimeAt(
+          bars.length,
+          offset,
+          visibleCount,
+          visibleCount +
+            Math.sign(event.deltaY) *
+              Math.max(2, Math.round(Math.abs(event.deltaY) / 8)),
+          fraction,
+        );
+        setWindowSize(next.count);
+        setEndOverride(next.end === bars.length ? null : next.end);
+      }
+      setCursor(null);
+    };
+    stage.addEventListener('wheel', handleWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', handleWheel);
+  }, [bars.length, chartWidth, end, offset, visibleCount]);
   const selected = cursor
     ? chartCursor(
         cursor.x,
@@ -196,43 +263,76 @@ function CandleChart({
   const crossX = selected ? x(selected.index) : null;
   return (
     <div className="chart-explorer">
-      <div className="chart-stage">
+      <div className="chart-stage" ref={stageRef}>
         <svg
-          className={`candle-chart ${dragging ? "is-dragging" : ""}`}
+          ref={svgRef}
+          className={`candle-chart ${dragging ? 'is-dragging' : ''}`}
           viewBox={`0 0 ${width} ${height}`}
-          aria-label="Интерактивный свечной график xyz:GOLD. Перетаскивайте или прокручивайте для просмотра истории."
-          onWheel={(event) => {
-            event.preventDefault();
-            const delta = event.deltaX || event.deltaY;
-            if (
-              event.shiftKey ||
-              Math.abs(event.deltaX) > Math.abs(event.deltaY)
-            )
-              move(
-                Math.sign(delta) *
-                  Math.max(1, Math.round(Math.abs(delta) / 40)),
-              );
-            else zoom(Math.sign(event.deltaY) * 12);
-          }}
+          aria-label="Интерактивный свечной график xyz:GOLD. Перетаскивайте поле для перемещения, правую шкалу для масштаба цены, нижнюю шкалу для масштаба времени."
           onPointerDown={(event) => {
+            const point = pointInChart(event.clientX, event.clientY);
+            if (!point) return;
+            const mode =
+              point.x >= width - right
+                ? 'price'
+                : point.y >= height - bottom
+                  ? 'time'
+                  : 'plot';
             event.currentTarget.setPointerCapture(event.pointerId);
-            drag.current = { x: event.clientX, end };
+            drag.current = {
+              mode,
+              x: event.clientX,
+              y: event.clientY,
+              end,
+              count: visibleCount,
+              scale: priceScale,
+              offset: priceOffset,
+              span: high - low,
+            };
             setDragging(true);
+            setCursor(null);
           }}
           onPointerMove={(event) => {
             if (drag.current) {
-              const candlePixels =
-                event.currentTarget.clientWidth / visibleCount;
-              const shift = Math.round(
-                (drag.current.x - event.clientX) / candlePixels,
-              );
-              const next = Math.max(
-                visibleCount,
-                Math.min(bars.length, drag.current.end + shift),
-              );
-              setEndOverride(next === bars.length ? null : next);
+              const started = drag.current;
+              const matrix = event.currentTarget.getScreenCTM();
+              const svgScale = matrix
+                ? Math.hypot(matrix.a, matrix.b)
+                : event.currentTarget.getBoundingClientRect().width / width;
+              if (started.mode === 'plot') {
+                const shift = Math.round(
+                  (started.x - event.clientX) /
+                    ((chartWidth * svgScale) / started.count),
+                );
+                const next = clamp(
+                  started.end + shift,
+                  started.count,
+                  bars.length,
+                );
+                setEndOverride(next === bars.length ? null : next);
+                setPriceOffset(
+                  started.offset +
+                    ((event.clientY - started.y) / (chartHeight * svgScale)) *
+                      started.span,
+                );
+              } else if (started.mode === 'price') {
+                const delta = (event.clientY - started.y) / svgScale;
+                setPriceScale(
+                  clamp(started.scale * Math.exp(delta / 170), 0.2, 8),
+                );
+              } else {
+                const delta = (event.clientX - started.x) / svgScale;
+                const nextCount = clamp(
+                  Math.round(started.count * Math.exp(-delta / 260)),
+                  40,
+                  Math.min(320, bars.length),
+                );
+                setWindowSize(nextCount);
+                const nextEnd = clamp(started.end, nextCount, bars.length);
+                setEndOverride(nextEnd === bars.length ? null : nextEnd);
+              }
               setCursor(null);
-            } else pointerCursor(event);
+            } else pointerCursor(event.clientX, event.clientY);
           }}
           onPointerUp={(event) => {
             drag.current = null;
@@ -244,7 +344,7 @@ function CandleChart({
               event.clientY >= bounds.top &&
               event.clientY <= bounds.bottom
             )
-              pointerCursor(event);
+              pointerCursor(event.clientX, event.clientY);
             else setCursor(null);
           }}
           onPointerCancel={() => {
@@ -255,10 +355,21 @@ function CandleChart({
           onPointerLeave={() => {
             if (!drag.current) setCursor(null);
           }}
+          onDoubleClick={(event) => {
+            const point = pointInChart(event.clientX, event.clientY);
+            if (point && point.x >= width - right) {
+              setPriceScale(1);
+              setPriceOffset(0);
+            } else if (point && point.y >= height - bottom) {
+              setWindowSize(112);
+              setEndOverride(null);
+            }
+          }}
         >
           <title>
-            Перетаскивайте график или используйте колесо мыши. Экстремумы
-            показываются только после подтверждения тремя следующими свечами.
+            Перемещение по графику — горизонтально и вертикально. Правая шкала
+            меняет масштаб цены, нижняя — масштаб времени. Экстремумы
+            подтверждаются тремя следующими свечами.
           </title>
           {[0, 0.25, 0.5, 0.75, 1].map((position) => {
             const price = high - position * (high - low);
@@ -341,7 +452,7 @@ function CandleChart({
             )}
           {visible.map((bar, localIndex) => {
             const index = offset + localIndex,
-              color = bar.close >= bar.open ? "#6fc7ae" : "#e88989";
+              color = bar.close >= bar.open ? '#6fc7ae' : '#e88989';
             return (
               <g key={bar.time}>
                 <line
@@ -428,7 +539,7 @@ function CandleChart({
             <polyline
               points={trendPath}
               fill="none"
-              stroke={viewStructure.trend === "up" ? "#38d7a7" : "#ff647c"}
+              stroke={viewStructure.trend === 'up' ? '#38d7a7' : '#ff647c'}
               strokeWidth="2.5"
               strokeDasharray="8 5"
             />
@@ -439,16 +550,16 @@ function CandleChart({
                 cx={x(pivot.index)}
                 cy={y(pivot.price)}
                 r="3.5"
-                fill={pivot.kind === "high" ? "#ddbb70" : "#76c9ae"}
+                fill={pivot.kind === 'high' ? '#ddbb70' : '#76c9ae'}
               />
               <text
                 x={x(pivot.index)}
-                y={y(pivot.price) + (pivot.kind === "high" ? -8 : 15)}
+                y={y(pivot.price) + (pivot.kind === 'high' ? -8 : 15)}
                 textAnchor="middle"
-                fill={pivot.kind === "high" ? "#ddbb70" : "#76c9ae"}
+                fill={pivot.kind === 'high' ? '#ddbb70' : '#76c9ae'}
                 fontSize="10"
               >
-                {pivot.kind === "high" ? "H" : "L"}
+                {pivot.kind === 'high' ? 'H' : 'L'}
               </text>
             </g>
           ))}
@@ -458,7 +569,7 @@ function CandleChart({
                 cx={x(event.index)}
                 cy={y(bars[event.index].close)}
                 r="7"
-                fill={event.kind.includes("reclaim") ? "#a78bda" : "#5eaed6"}
+                fill={event.kind.includes('reclaim') ? '#a78bda' : '#5eaed6'}
               />
               <text
                 x={x(event.index)}
@@ -468,7 +579,7 @@ function CandleChart({
                 fontWeight="700"
                 fontSize="9"
               >
-                {event.kind.includes("reclaim") ? "R" : "B"}
+                {event.kind.includes('reclaim') ? 'R' : 'B'}
               </text>
             </g>
           ))}
@@ -532,7 +643,7 @@ function CandleChart({
               x={left + position * chartWidth}
               y={height - 5}
               textAnchor={
-                position === 0 ? "start" : position === 1 ? "end" : "middle"
+                position === 0 ? 'start' : position === 1 ? 'end' : 'middle'
               }
               fill="#8392a6"
               fontSize="11"
@@ -540,6 +651,22 @@ function CandleChart({
               {utc(visible[Math.round(position * (visible.length - 1))].time)}
             </text>
           ))}
+          <rect
+            className="chart-time-axis-hitbox"
+            x={left}
+            y={height - bottom}
+            width={chartWidth}
+            height={bottom}
+            fill="transparent"
+          />
+          <rect
+            className="chart-price-axis-hitbox"
+            x={plotRight}
+            y={0}
+            width={right}
+            height={height}
+            fill="transparent"
+          />
         </svg>
         {selectedBar && (
           <div className="crosshair-ohlc">
@@ -560,7 +687,7 @@ function CandleChart({
         </div>
         {atLatest && livePrice !== null && fetchedAt && (
           <div className="live-price-caption">
-            MID — текущая mid-цена Hyperliquid · обновлено{" "}
+            MID — текущая mid-цена Hyperliquid · обновлено{' '}
             {utc(fetchedAt, true)}
             UTC
           </div>
@@ -587,8 +714,9 @@ function CandleChart({
         <span>{utc(visible.at(-1)!.time, true)}</span>
       </div>
       <div className="chart-navigation-hint">
-        <MousePointer2 /> Наведение — перекрестие · колесо — масштаб · Shift +
-        колесо или перетаскивание — история · {bars.length} свечей
+        <MousePointer2 /> Тяните поле — перемещение · правую шкалу — масштаб
+        цены · нижнюю шкалу или колесо — масштаб времени · двойной клик по шкале
+        — сброс · {bars.length} свечей
       </div>
     </div>
   );
@@ -603,14 +731,14 @@ function Metric({
   label: string;
   value: string;
   note: string;
-  tone?: "good" | "bad";
+  tone?: 'good' | 'bad';
 }) {
   return (
     <div className="metric">
       <span>{label}</span>
       <strong
         className={
-          tone === "good" ? "positive" : tone === "bad" ? "negative" : ""
+          tone === 'good' ? 'positive' : tone === 'bad' ? 'negative' : ''
         }
       >
         {value}
@@ -622,8 +750,8 @@ function Metric({
 
 function SignalVote({ label, value }: { label: string; value: number }) {
   return (
-    <span className={value === 1 ? "vote-up" : value === -1 ? "vote-down" : ""}>
-      {label} <b>{value === 1 ? "↑" : value === -1 ? "↓" : "—"}</b>
+    <span className={value === 1 ? 'vote-up' : value === -1 ? 'vote-down' : ''}>
+      {label} <b>{value === 1 ? '↑' : value === -1 ? '↓' : '—'}</b>
     </span>
   );
 }
@@ -631,21 +759,21 @@ function SignalVote({ label, value }: { label: string; value: number }) {
 export default function Home() {
   const [bars, setBars] = useState<Bar[]>(() => demoBars());
   const [market, setMarket] = useState<MarketDataset | null>(null);
-  const [source, setSource] = useState("Синтетический резервный набор");
-  const [interval, setIntervalValue] = useState<HLInterval>("1h");
+  const [source, setSource] = useState('Синтетический резервный набор');
+  const [interval, setIntervalValue] = useState<HLInterval>('1h');
   const [config, setConfig] = useState<Config>({ ...defaults });
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [loading, setLoading] = useState(true),
     [calculating, setCalculating] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState('');
   const [updatedReason, setUpdatedReason] = useState(
-    "Первичное получение данных",
+    'Первичное получение данных',
   );
   const uploadRef = useRef<HTMLInputElement>(null),
     requestRef = useRef<AbortController | null>(null);
   const dataBusy = useRef(false),
     calculationId = useRef(0),
-    lastAnalyzed = useRef(""),
+    lastAnalyzed = useRef(''),
     activeStrategy = useRef<string | null>(null);
   const structure = useMemo(() => analyzeMarket(bars), [bars]);
 
@@ -669,7 +797,7 @@ export default function Home() {
         } catch (caught) {
           if (id === calculationId.current)
             setError(
-              caught instanceof Error ? caught.message : "Ошибка исследования.",
+              caught instanceof Error ? caught.message : 'Ошибка исследования.',
             );
         } finally {
           if (id === calculationId.current) setCalculating(false);
@@ -684,7 +812,7 @@ export default function Home() {
       if (dataBusy.current) return;
       dataBusy.current = true;
       setLoading(true);
-      if (!automatic) setError("");
+      if (!automatic) setError('');
       const controller = new AbortController();
       requestRef.current = controller;
       const timeout = window.setTimeout(() => controller.abort(), 25000);
@@ -701,18 +829,18 @@ export default function Home() {
         if (nextFingerprint !== lastAnalyzed.current)
           runResearch(
             dataset.bars,
-            automatic ? "Новая закрытая свеча" : "Данные Hyperliquid обновлены",
+            automatic ? 'Новая закрытая свеча' : 'Данные Hyperliquid обновлены',
             automatic,
           );
       } catch (caught) {
         const message = controller.signal.aborted
-          ? "Hyperliquid не ответил за 25 секунд."
+          ? 'Hyperliquid не ответил за 25 секунд.'
           : caught instanceof Error
             ? caught.message
-            : "Не удалось получить свечи.";
+            : 'Не удалось получить свечи.';
         if (!automatic || !market) setError(message);
         if (!market && !experiment)
-          runResearch(bars, "Резервный демонстрационный набор");
+          runResearch(bars, 'Резервный демонстрационный набор');
       } finally {
         window.clearTimeout(timeout);
         dataBusy.current = false;
@@ -733,7 +861,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void refreshRef.current("1h"), 0);
+    const timer = window.setTimeout(() => void refreshRef.current('1h'), 0);
     return () => {
       window.clearTimeout(timer);
       cancelPending();
@@ -741,7 +869,7 @@ export default function Home() {
   }, [cancelPending]);
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible")
+      if (document.visibilityState === 'visible')
         void refreshRef.current(interval, true);
     }, 60_000);
     return () => window.clearInterval(timer);
@@ -750,24 +878,24 @@ export default function Home() {
   const importFile = async (file?: File) => {
     if (!file) return;
     try {
-      if (file.size > 5_000_000) throw new Error("Файл больше 5 МБ.");
+      if (file.size > 5_000_000) throw new Error('Файл больше 5 МБ.');
       const nextBars = parseCSV(await file.text());
       setBars(nextBars);
       setMarket(null);
       setSource(file.name);
-      runResearch(nextBars, "Импортирован CSV");
+      runResearch(nextBars, 'Импортирован CSV');
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Не удалось прочитать CSV.",
+        caught instanceof Error ? caught.message : 'Не удалось прочитать CSV.',
       );
     } finally {
-      if (uploadRef.current) uploadRef.current.value = "";
+      if (uploadRef.current) uploadRef.current.value = '';
     }
   };
   const updateConfig = (key: keyof Config, value: string) =>
     setConfig((current) => ({
       ...current,
-      [key]: value === "" ? NaN : Number(value),
+      [key]: value === '' ? NaN : Number(value),
     }));
   const field = (key: keyof Config, label: string, step = 1) => (
     <label className="field">
@@ -777,7 +905,7 @@ export default function Home() {
         min={configLimits[key][0]}
         max={configLimits[key][1]}
         step={step}
-        value={Number.isFinite(config[key]) ? config[key] : ""}
+        value={Number.isFinite(config[key]) ? config[key] : ''}
         onChange={(event) => updateConfig(key, event.target.value)}
       />
     </label>
@@ -805,14 +933,14 @@ export default function Home() {
         null,
         2,
       ),
-      "application/json",
+      'application/json',
     );
 
   return (
     <main className="shell">
       <header className="topbar">
         <div className="brand">
-          ◈{" "}
+          ◈{' '}
           <span>
             AURUM<span className="brand-light">LAB</span>
           </span>
@@ -821,12 +949,12 @@ export default function Home() {
           Интеллектуальная система поиска стратегий
         </span>
         <span className="live-pill">
-          <i className={market ? "online" : ""} />
+          <i className={market ? 'online' : ''} />
           {loading
-            ? "получение данных"
+            ? 'получение данных'
             : market
-              ? "Hyperliquid подключён"
-              : "резервный набор"}
+              ? 'Hyperliquid подключён'
+              : 'резервный набор'}
         </span>
       </header>
       <div className="workspace">
@@ -861,7 +989,7 @@ export default function Home() {
               disabled={loading}
               onClick={() => void refresh(interval)}
             >
-              <RefreshCw className={loading ? "spinning" : ""} />
+              <RefreshCw className={loading ? 'spinning' : ''} />
               Обновить
             </Button>
           </div>
@@ -869,7 +997,7 @@ export default function Home() {
         {error && (
           <div role="alert" className="error-banner">
             <span>{error}</span>
-            <button aria-label="Закрыть" onClick={() => setError("")}>
+            <button aria-label="Закрыть" onClick={() => setError('')}>
               <X />
             </button>
           </div>
@@ -883,7 +1011,7 @@ export default function Home() {
                   <h2>xyz:GOLD</h2>
                   <strong>{fmt(market?.midPrice ?? last.close)}</strong>
                   <span>
-                    {market ? "текущий mid" : "последнее закрытие"} · USDC/oz
+                    {market ? 'текущий mid' : 'последнее закрытие'} · USDC/oz
                   </span>
                   {market && (
                     <small className="closed-quote">
@@ -924,11 +1052,11 @@ export default function Home() {
                   <span>АГЕНТ-ИССЛЕДОВАТЕЛЬ</span>
                   <strong>
                     {calculating
-                      ? "Обучает модель и сравнивает варианты"
-                      : "Анализ актуален"}
+                      ? 'Обучает модель и сравнивает варианты'
+                      : 'Анализ актуален'}
                   </strong>
                 </div>
-                <i className={calculating ? "pulse" : ""} />
+                <i className={calculating ? 'pulse' : ''} />
               </div>
               <div className={`signal ${tradingSignal.side}`}>
                 <div className="signal-kicker">
@@ -1015,23 +1143,23 @@ export default function Home() {
         <div className="metric-grid">
           <Metric
             label="Выбранная стратегия"
-            value={selected?.name ?? "—"}
+            value={selected?.name ?? '—'}
             note="Выбор только на валидации"
           />
           <Metric
             label="Финальный тест"
-            value={test ? pct(test.returnPct) : "—"}
-            note={test ? `${test.trades.length} сделок` : "Кандидат не допущен"}
-            tone={test ? (test.returnPct >= 0 ? "good" : "bad") : undefined}
+            value={test ? pct(test.returnPct) : '—'}
+            note={test ? `${test.trades.length} сделок` : 'Кандидат не допущен'}
+            tone={test ? (test.returnPct >= 0 ? 'good' : 'bad') : undefined}
           />
           <Metric
             label="Макс. просадка"
-            value={test ? `${fmt(test.drawdownPct)}%` : "—"}
+            value={test ? `${fmt(test.drawdownPct)}%` : '—'}
             note={`Лимит ${fmt(config.maxDrawdown, 0)}%`}
           />
           <Metric
             label="ML-модель"
-            value={experiment ? `${experiment.model.samples} примеров` : "—"}
+            value={experiment ? `${experiment.model.samples} примеров` : '—'}
             note="Логистическая регрессия · 6 признаков"
           />
         </div>
@@ -1090,23 +1218,23 @@ export default function Home() {
                         key={candidate.strategy.id}
                         className={
                           candidate.strategy.id === selected?.id
-                            ? "chosen-row"
-                            : ""
+                            ? 'chosen-row'
+                            : ''
                         }
                       >
                         <TableCell>
                           <strong>{candidate.strategy.name}</strong>
                           <small className="table-sub">
-                            {candidate.strategy.family === "ml"
-                              ? "машинное обучение"
-                              : "формализованное правило"}
+                            {candidate.strategy.family === 'ml'
+                              ? 'машинное обучение'
+                              : 'формализованное правило'}
                           </small>
                         </TableCell>
                         <TableCell
                           className={
                             candidate.validation.returnPct >= 0
-                              ? "positive"
-                              : "negative"
+                              ? 'positive'
+                              : 'negative'
                           }
                         >
                           {pct(candidate.validation.returnPct)}
@@ -1121,11 +1249,11 @@ export default function Home() {
                           <span
                             className={
                               candidate.eligible
-                                ? "status-good"
-                                : "status-neutral"
+                                ? 'status-good'
+                                : 'status-neutral'
                             }
                           >
-                            {candidate.eligible ? "пройден" : "не пройден"}
+                            {candidate.eligible ? 'пройден' : 'не пройден'}
                           </span>
                         </TableCell>
                       </TableRow>
@@ -1168,18 +1296,18 @@ export default function Home() {
                       <article key={`${event.kind}-${event.index}`}>
                         <span
                           className={
-                            event.kind.includes("reclaim")
-                              ? "reclaim-dot"
-                              : "break-dot"
+                            event.kind.includes('reclaim')
+                              ? 'reclaim-dot'
+                              : 'break-dot'
                           }
                         >
-                          {event.kind.includes("reclaim") ? "R" : "B"}
+                          {event.kind.includes('reclaim') ? 'R' : 'B'}
                         </span>
                         <div>
                           <strong>{event.title}</strong>
                           <p>{event.detail}</p>
                           <small>
-                            {utc(bars[event.index].time, true)} UTC · уровень{" "}
+                            {utc(bars[event.index].time, true)} UTC · уровень{' '}
                             {fmt(event.level)}
                           </small>
                         </div>
@@ -1223,7 +1351,7 @@ export default function Home() {
                   <Button
                     variant="outline"
                     onClick={() =>
-                      download("xyz-GOLD.csv", barsCSV(bars), "text/csv")
+                      download('xyz-GOLD.csv', barsCSV(bars), 'text/csv')
                     }
                   >
                     <ArrowDownToLine />
@@ -1233,7 +1361,7 @@ export default function Home() {
                     <Button
                       variant="outline"
                       onClick={() =>
-                        download("trades.csv", tradesCSV(test), "text/csv")
+                        download('trades.csv', tradesCSV(test), 'text/csv')
                       }
                     >
                       <ArrowDownToLine />
@@ -1249,18 +1377,18 @@ export default function Home() {
               <details className="advanced">
                 <summary>Модель исполнения и риск</summary>
                 <div className="fields-grid">
-                  {field("capital", "Капитал, USD", 100)}
-                  {field("allocation", "Доля капитала, %", 5)}
-                  {field("stop", "Стоп-лосс, %", 0.1)}
-                  {field("take", "Тейк-профит, %", 0.1)}
-                  {field("maxDrawdown", "Лимит просадки, %", 1)}
-                  {field("spread", "Спред, USD/унц.", 0.1)}
-                  {field("slippage", "Проскальзывание, USD/унц.", 0.05)}
-                  {field("commission", "Комиссия за сторону", 0.01)}
+                  {field('capital', 'Капитал, USD', 100)}
+                  {field('allocation', 'Доля капитала, %', 5)}
+                  {field('stop', 'Стоп-лосс, %', 0.1)}
+                  {field('take', 'Тейк-профит, %', 0.1)}
+                  {field('maxDrawdown', 'Лимит просадки, %', 1)}
+                  {field('spread', 'Спред, USD/унц.', 0.1)}
+                  {field('slippage', 'Проскальзывание, USD/унц.', 0.05)}
+                  {field('commission', 'Комиссия за сторону', 0.01)}
                 </div>
                 <Button
                   onClick={() =>
-                    runResearch(bars, "Параметры изменены пользователем")
+                    runResearch(bars, 'Параметры изменены пользователем')
                   }
                 >
                   Пересчитать с параметрами

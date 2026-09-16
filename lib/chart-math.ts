@@ -21,6 +21,34 @@ export function visibleRange(
   return { start: end - count, end, count };
 }
 
+export function scaleTimeAt(
+  total: number,
+  start: number,
+  count: number,
+  nextCount: number,
+  fraction: number,
+) {
+  const clampedCount = clamp(Math.round(nextCount), 40, Math.min(320, total));
+  const anchor = start + clamp(fraction, 0, 1) * count;
+  const nextStart = clamp(
+    Math.round(anchor - clamp(fraction, 0, 1) * clampedCount),
+    0,
+    total - clampedCount,
+  );
+  return { count: clampedCount, end: nextStart + clampedCount };
+}
+
+export function priceViewport(
+  rawLow: number,
+  rawHigh: number,
+  scale: number,
+  offset: number,
+) {
+  const center = (rawHigh + rawLow) / 2 + offset;
+  const halfRange = Math.max((rawHigh - rawLow) * 0.58, 0.01) * scale;
+  return { low: center - halfRange, high: center + halfRange };
+}
+
 export function chartCursor(
   pointX: number,
   pointY: number,
