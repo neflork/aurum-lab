@@ -987,24 +987,43 @@ export default function Home() {
     setMarketRead(fallback);
     setAiAnalyzing(true);
     try {
-      const response = await fetch('http://127.0.0.1:8787/analyze', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          prompt:
-            'Проанализируй закрытые бары xyz:GOLD для учебной платформы. Определи направление рынка, направление от открытия текущего UTC-дня, свечной order-flow proxy и SMT proxy. Объясни сценарий и условия отмены. Данные: ' +
-            JSON.stringify({
-              bars: bars.slice(-80),
-              structure: {
-                trend: structure.trend,
-                support: structure.support,
-                resistance: structure.resistance,
-                recentEvents: structure.events.slice(-6),
-              },
-            }),
-        }),
-      });
-      if (!response.ok) throw new Error('Локальный Codex bridge недоступен.');
+      const localHost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1');
+      const response = await fetch(
+        localHost
+          ? '/api/local-codex/analyze'
+          : 'http://127.0.0.1:8787/analyze',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            prompt:
+              'Проанализируй закрытые бары xyz:GOLD для учебной платформы. Определи направление рынка, направление от открытия текущего UTC-дня, свечной order-flow proxy и SMT proxy. Объясни сценарий и условия отмены. Данные: ' +
+              JSON.stringify({
+                bars: bars.slice(-80),
+                structure: {
+                  trend: structure.trend,
+                  support: structure.support,
+                  resistance: structure.resistance,
+                  recentEvents: structure.events.slice(-6),
+                },
+              }),
+          }),
+        },
+      );
+      if (!response.ok) {
+        const failure: unknown = await response.json().catch(() => ({}));
+        const failureMessage =
+          typeof failure === 'object' &&
+          failure !== null &&
+          'error' in failure &&
+          typeof failure.error === 'string'
+            ? failure.error
+            : null;
+        throw new Error(failureMessage ?? 'Локальный Codex bridge недоступен.');
+      }
       const payload = (await response.json()) as { text?: string };
       const raw = payload.text?.match(/\{[\s\S]*\}/)?.[0];
       if (!raw) throw new Error('Codex вернул ответ не в JSON-формате.');

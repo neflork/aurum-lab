@@ -60,11 +60,18 @@ const run = async () => {
         prompt.length > 50000
       )
         return json(res, 400, { error: 'Некорректный prompt.' });
-      const text = await createClient().respond(prompt, {
-        model: process.env.AURUM_AI_MODEL ?? 'gpt-5-codex',
+      const client = createClient();
+      const chunks = [];
+      for await (const chunk of client.stream(prompt, {
+        // The legacy gpt-5-codex slug is rejected for ChatGPT OAuth sessions.
+        // Keep this configurable so the bridge can follow the currently
+        // supported Codex model without changing the frontend.
+        model: process.env.AURUM_AI_MODEL ?? 'gpt-5.5',
         instructions:
           'Ты аналитик рынка для учебного проекта. Не выдавай финансовую рекомендацию и не придумывай данные. Верни только JSON без markdown по схеме: {"bias":"up|down|range","biasLabel":"вверх|вниз|нейтрально","dayOpen":number,"dayLabel":string,"flow":"buying|selling|balanced","flowLabel":string,"smtLabel":string,"confidence":number,"scenario":string,"reasons":string[],"commentary":string}. Если настоящего order flow или второго инструмента нет, явно назови вывод proxy.',
-      });
+      }))
+        chunks.push(chunk);
+      const text = chunks.join('');
       return json(res, 200, { text });
     } catch (error) {
       return json(res, 502, {
