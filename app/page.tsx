@@ -116,7 +116,16 @@ function CandleChart({
     offset: number;
     span: number;
   } | null>(null);
-  const range = visibleRange(bars.length, windowSize, endOverride);
+  // Keep enough real candles in view while allowing the viewport to move into
+  // the empty future area to the right of the latest closed candle.
+  const futurePadding = Math.max(1, Math.round(windowSize * 0.75));
+  const maxPanEnd = bars.length + futurePadding;
+  const range = visibleRange(
+    bars.length,
+    windowSize,
+    endOverride,
+    futurePadding,
+  );
   const { start: offset, end, count: visibleCount } = range;
   const visible = bars.slice(offset, end);
   const atLatest = end === bars.length;
@@ -223,7 +232,7 @@ function CandleChart({
         const delta = event.deltaX || event.deltaY;
         const shift =
           Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / 40));
-        const next = clamp(end + shift, visibleCount, bars.length);
+        const next = clamp(end + shift, visibleCount, maxPanEnd);
         setEndOverride(next === bars.length ? null : next);
       } else {
         const fraction = clamp((point.x - left) / chartWidth, 0, 1);
@@ -243,7 +252,7 @@ function CandleChart({
     };
     stage.addEventListener('wheel', handleWheel, { passive: false });
     return () => stage.removeEventListener('wheel', handleWheel);
-  }, [bars.length, chartWidth, end, offset, visibleCount]);
+  }, [bars.length, chartWidth, end, maxPanEnd, offset, visibleCount]);
   const selected = cursor
     ? chartCursor(
         cursor.x,
@@ -318,7 +327,7 @@ function CandleChart({
                 const next = clamp(
                   started.end + shift,
                   started.count,
-                  bars.length,
+                  bars.length + Math.max(1, Math.round(started.count * 0.75)),
                 );
                 setEndOverride(next === bars.length ? null : next);
                 setPriceOffset(
@@ -741,7 +750,7 @@ function CandleChart({
           aria-label="Положение в истории"
           type="range"
           min={visibleCount}
-          max={bars.length}
+          max={maxPanEnd}
           value={end}
           onChange={(event) => {
             const next = Number(event.target.value);

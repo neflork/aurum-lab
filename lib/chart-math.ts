@@ -15,9 +15,14 @@ export function visibleRange(
   total: number,
   requestedCount: number,
   requestedEnd: number | null,
+  futureBars = 0,
 ) {
   const count = clamp(Math.round(requestedCount), 1, total);
-  const end = clamp(requestedEnd ?? total, count, total);
+  const end = clamp(
+    requestedEnd ?? total,
+    count,
+    total + Math.max(0, Math.round(futureBars)),
+  );
   return { start: end - count, end, count };
 }
 

@@ -29,6 +29,19 @@ test('visible range clamps navigation and zoom to available bars', () => {
   });
 });
 
+test('visible range allows a bounded empty future area after the last bar', () => {
+  assert.deepEqual(visibleRange(2000, 112, 2084, 84), {
+    start: 1972,
+    end: 2084,
+    count: 112,
+  });
+  assert.deepEqual(visibleRange(2000, 112, 2400, 84), {
+    start: 1972,
+    end: 2084,
+    count: 112,
+  });
+});
+
 test('crosshair clamps edge positions and maps price/index', () => {
   const topLeft = chartCursor(-100, -100, plot, 500, 100, 4200, 4400);
   assert.equal(topLeft.index, 500);
