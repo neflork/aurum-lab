@@ -4,7 +4,22 @@ import {
   agentEndpoint,
   readAgentConnection,
   startAgentLogin,
+  logoutAgent,
 } from '../lib/agent-client.ts';
+
+test('logout requires confirmed success and uses the protected JSON endpoint', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, '/api/local-codex/logout');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers['Content-Type'], 'application/json');
+    return Response.json({ connected: false });
+  });
+  await logoutAgent('localhost');
+  globalThis.fetch = async () => Response.json({ connected: true });
+  await assert.rejects(logoutAgent('localhost'), /не подтвердил/);
+  globalThis.fetch = async () => new Response('', { status: 503 });
+  await assert.rejects(logoutAgent('localhost'), /Не удалось выйти/);
+});
 
 test('agent endpoints use the dev proxy locally and loopback on a hosted site', () => {
   assert.equal(agentEndpoint('status', 'localhost'), '/api/local-codex/status');

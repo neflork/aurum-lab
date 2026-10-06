@@ -45,3 +45,53 @@ test('failures before and after URL delivery settle and allow another attempt', 
   await flow.start();
   assert.equal(calls, 3);
 });
+
+test('logout clears the session once, resets progress and serializes with login', async () => {
+  const flow = createBridgeLogin(async ({ onUrl }) =>
+    onUrl('https://auth.openai.com/authorize'),
+  );
+  await flow.start();
+  await new Promise(setImmediate);
+  let finish;
+  let calls = 0;
+  const clear = () => {
+    calls++;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  };
+  const first = flow.logout(clear);
+  assert.equal(flow.logout(clear), first);
+  await assert.rejects(flow.start(), /Дождитесь/);
+  finish();
+  await first;
+  assert.equal(calls, 1);
+  assert.deepEqual(flow.status(), { state: 'idle', error: null });
+  await flow.start();
+});
+
+test('logout cannot race an unfinished login or claim success if clearing fails', async () => {
+  let finish;
+  const flow = createBridgeLogin(({ onUrl }) => {
+    onUrl('https://auth.openai.com/authorize');
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  await flow.start();
+  await assert.rejects(
+    flow.logout(() => assert.fail('must not clear during login')),
+    /Сначала завершите/,
+  );
+  finish();
+  await new Promise(setImmediate);
+  await assert.rejects(
+    flow.logout(async () => {
+      throw new Error('storage failure');
+    }),
+    /storage failure/,
+  );
+  assert.equal(flow.status().state, 'completed');
+  await flow.logout(async () => {});
+  assert.equal(flow.status().state, 'idle');
+});

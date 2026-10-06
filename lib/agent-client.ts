@@ -9,12 +9,32 @@ export type AgentConnection = {
 };
 
 export function agentEndpoint(
-  path: 'status' | 'analyze' | 'login',
+  path: 'status' | 'analyze' | 'login' | 'logout',
   hostname: string,
 ) {
   return hostname === 'localhost' || hostname === '127.0.0.1'
     ? `/api/local-codex/${path}`
     : `http://127.0.0.1:8787/${path}`;
+}
+
+export async function logoutAgent(hostname: string): Promise<void> {
+  const response = await fetch(agentEndpoint('logout', hostname), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: AbortSignal.timeout(10_000),
+    cache: 'no-store',
+  });
+  if (!response.ok)
+    throw new Error('Не удалось выйти из аккаунта. Попробуйте ещё раз.');
+  const payload: unknown = await response.json();
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('connected' in payload) ||
+    payload.connected !== false
+  )
+    throw new Error('Помощник не подтвердил выход из аккаунта.');
 }
 
 export async function startAgentLogin(hostname: string): Promise<string> {

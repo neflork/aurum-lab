@@ -12,6 +12,7 @@ import {
   FlaskConical,
   LocateFixed,
   ListChecks,
+  LogOut,
   MousePointer2,
   RefreshCw,
   ScanSearch,
@@ -71,6 +72,7 @@ import {
   agentEndpoint,
   readAgentConnection,
   startAgentLogin,
+  logoutAgent,
   type AgentConnection,
 } from '@/lib/agent-client';
 
@@ -874,6 +876,38 @@ export default function Home() {
   const [loginPending, setLoginPending] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [startingLogin, setStartingLogin] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const logoutBusy = useRef(false);
+  const authRevision = useRef(0);
+  const endAgentSession = async () => {
+    if (logoutBusy.current) return;
+    logoutBusy.current = true;
+    authRevision.current++;
+    setLoggingOut(true);
+    setLoginError('');
+    try {
+      await logoutAgent(window.location.hostname);
+      setAgent({
+        state: 'unauthorized',
+        account: null,
+        model: null,
+        checkedAt: new Date().toISOString(),
+        loginState: 'idle',
+      });
+      setLoginPending(false);
+      loginStartedAt.current = 0;
+      previousAgentState.current = 'unauthorized';
+      appendLog('info', 'Агент', 'Выполнен выход из аккаунта Codex.');
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : 'Не удалось выйти.',
+      );
+    } finally {
+      authRevision.current++;
+      logoutBusy.current = false;
+      setLoggingOut(false);
+    }
+  };
   const loginWindow = useRef<Window | null>(null);
   const loginRequestBusy = useRef(false);
   const loginStartedAt = useRef(0);
@@ -914,7 +948,8 @@ export default function Home() {
   const previousAgentState = useRef<AgentConnection['state'] | null>(null);
   const checkAgent = useCallback(
     async (signal?: AbortSignal) => {
-      if (agentCheckBusy.current) return;
+      if (agentCheckBusy.current || logoutBusy.current) return;
+      const revision = authRevision.current;
       agentCheckBusy.current = true;
       setCheckingAgent(true);
       try {
@@ -922,7 +957,7 @@ export default function Home() {
           window.location.hostname,
           signal,
         );
-        if (signal?.aborted) return;
+        if (signal?.aborted || revision !== authRevision.current) return;
         setAgent(next);
         if (next.state === 'connected') {
           loginStartedAt.current = 0;
@@ -1396,7 +1431,7 @@ export default function Home() {
             </Button>
             <Button
               onClick={() => void runMarketRead()}
-              disabled={loading || aiAnalyzing}
+              disabled={loading || aiAnalyzing || loggingOut}
             >
               <ScanSearch />
               {aiAnalyzing ? 'Codex анализирует…' : 'Анализ рынка'}
@@ -1490,6 +1525,17 @@ export default function Home() {
                     {agent.account ?? 'OAuth-сессия активна'}
                     {agent.model ? ` · ${agent.model}` : ''}
                   </p>
+                )}
+                {agent.state === 'connected' && (
+                  <Button
+                    className="agent-login-button"
+                    variant="outline"
+                    disabled={loggingOut || aiAnalyzing || loginPending}
+                    onClick={() => void endAgentSession()}
+                  >
+                    <LogOut />
+                    {loggingOut ? 'Выходим…' : 'Выйти'}
+                  </Button>
                 )}
                 {agent.state === 'unauthorized' && (
                   <p>

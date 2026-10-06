@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createClient, getSession, login } from 'oauth-codex';
+import { createClient, getSession, login, logout } from 'oauth-codex';
 import { createBridgeLogin } from './bridge-login.mjs';
 
 const port = Number(process.env.AURUM_AI_PORT ?? 8787);
@@ -73,6 +73,17 @@ const run = async () => {
       } catch (error) {
         return json(res, 503, {
           error: error instanceof Error ? error.message : 'Вход недоступен.',
+        });
+      }
+    }
+    if (req.url === '/logout' && req.method === 'POST') {
+      try {
+        await browserLogin.logout(logout);
+        return json(res, 200, { connected: false });
+      } catch {
+        return json(res, 503, {
+          error:
+            'Не удалось выйти. Завершите текущий вход и повторите попытку.',
         });
       }
     }
