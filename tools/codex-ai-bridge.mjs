@@ -1,13 +1,30 @@
 import { createServer } from 'node:http';
 import { createClient, getSession, login } from 'oauth-codex';
+import { createBridgeLogin } from './bridge-login.mjs';
 
 const port = Number(process.env.AURUM_AI_PORT ?? 8787);
-const origin = process.env.AURUM_AI_ORIGIN ?? '*';
+const allowedOrigins = new Set([
+  'https://aurum-strategy-lab.subhashrajput35538.chatgpt.site',
+  ...(process.env.AURUM_AI_ORIGIN ?? '').split(',').filter(Boolean),
+]);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // Local CLI access.
+  if (allowedOrigins.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === 'http:' &&
+      ['localhost', '127.0.0.1'].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
+const model = process.env.AURUM_AI_MODEL ?? 'gpt-5.5';
 
 const json = (res, status, body) => {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
-    'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
   });
@@ -37,20 +54,53 @@ const run = async () => {
   }
 
   const server = createServer(async (req, res) => {
+    const origin = req.headers.origin;
+    if (!isAllowedOrigin(origin))
+      return json(res, 403, { error: 'Origin not allowed' });
+    if (origin) res.setHeader('access-control-allow-origin', origin);
+    res.setHeader('vary', 'Origin');
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('access-control-allow-private-network', 'true');
     if (req.method === 'OPTIONS') return json(res, 204, {});
+    if (
+      req.method === 'POST' &&
+      req.headers['content-type']?.split(';')[0] !== 'application/json'
+    )
+      return json(res, 415, { error: 'Expected application/json' });
+    if (req.url === '/login' && req.method === 'POST') {
+      try {
+        return json(res, 200, await browserLogin.start());
+      } catch (error) {
+        return json(res, 503, {
+          error: error instanceof Error ? error.message : 'Вход недоступен.',
+        });
+      }
+    }
     if (req.url === '/status' && req.method === 'GET') {
-      const session = await getSession();
-      return json(res, 200, {
-        connected: Boolean(session),
-        account: session?.account.email ?? null,
-      });
+      try {
+        const session = await getSession();
+        return json(res, 200, {
+          connected: Boolean(session),
+          account: session?.account.email ?? null,
+          model,
+          login: browserLogin.status(),
+        });
+      } catch (error) {
+        return json(res, 503, {
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Не удалось проверить OAuth.',
+        });
+      }
     }
     if (req.url !== '/analyze' || req.method !== 'POST')
       return json(res, 404, { error: 'Not found' });
     const session = await getSession();
     if (!session)
       return json(res, 401, {
-        error: 'Codex OAuth не подключён. Запусти npm run ai:login.',
+        error:
+          'Codex не подключён. Нажмите «Войти через ChatGPT» в карточке агента.',
       });
     try {
       const { prompt } = await readBody(req);
@@ -66,7 +116,7 @@ const run = async () => {
         // The legacy gpt-5-codex slug is rejected for ChatGPT OAuth sessions.
         // Keep this configurable so the bridge can follow the currently
         // supported Codex model without changing the frontend.
-        model: process.env.AURUM_AI_MODEL ?? 'gpt-5.5',
+        model,
         instructions:
           'Ты аналитик рынка для учебного проекта. Не выдавай финансовую рекомендацию и не придумывай данные. Верни только JSON без markdown по схеме: {"bias":"up|down|range","biasLabel":"вверх|вниз|нейтрально","dayOpen":number,"dayLabel":string,"flow":"buying|selling|balanced","flowLabel":string,"smtLabel":string,"confidence":number,"scenario":string,"reasons":string[],"commentary":string}. Если настоящего order flow или второго инструмента нет, явно назови вывод proxy.',
       }))
@@ -81,9 +131,11 @@ const run = async () => {
   });
   server.listen(port, '127.0.0.1', () => {
     console.log('Aurum AI bridge: http://127.0.0.1:' + port);
-    console.log('Для OAuth в другом окне выполни: npm run ai:login');
+    console.log('Для входа нажмите «Войти через ChatGPT» на сайте.');
   });
 };
+
+const browserLogin = createBridgeLogin(login);
 
 run().catch((error) => {
   console.error(error instanceof Error ? error.message : error);

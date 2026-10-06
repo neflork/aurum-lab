@@ -1927,3 +1927,121 @@ h1 > span {
     gap: 10px;
   }
 }
+
+.agent-connection {
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.connection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.connection-heading .connection-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: #7a8790;
+}
+.connection-dot.connected {
+  background: #168264;
+}
+.connection-dot.unauthorized {
+  background: #b57c20;
+}
+.agent-connection p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.agent-login-button {
+  width: 100%;
+  margin: 8px 0;
+}
+.agent-login-error {
+  color: #a72b43;
+}
+.agent-login-help {
+  font-size: 14px;
+  margin: 8px 0;
+}
+.agent-login-help summary {
+  cursor: pointer;
+}
+.agent-connection small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.log-count {
+  border-radius: 12px;
+  background: var(--secondary);
+  padding: 1px 6px;
+  font-size: 10px;
+}
+.log-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.calculation-log {
+  max-height: 480px;
+  overflow: auto;
+  margin-top: 16px;
+}
+.log-entry {
+  display: grid;
+  grid-template-columns: 70px 90px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.log-entry time {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.log-level {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+.log-entry.success .log-level {
+  color: #168264;
+}
+.log-entry.warning .log-level {
+  color: #966010;
+}
+.log-entry.error .log-level {
+  color: #c13c3c;
+}
+.log-entry strong {
+  font-weight: 600;
+}
+.log-entry p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .log-entry {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 6px 10px;
+  }
+  .log-entry > div {
+    grid-column: 1 / -1;
+  }
+  .log-actions {
+    margin-top: 10px;
+  }
+}

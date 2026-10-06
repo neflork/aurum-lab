@@ -11,6 +11,7 @@ import {
   Database,
   FlaskConical,
   LocateFixed,
+  ListChecks,
   MousePointer2,
   RefreshCw,
   ScanSearch,
@@ -65,6 +66,27 @@ import {
   scaleTimeAt,
   visibleRange,
 } from '@/lib/chart-math';
+
+import {
+  agentEndpoint,
+  readAgentConnection,
+  startAgentLogin,
+  type AgentConnection,
+} from '@/lib/agent-client';
+
+type CalculationLog = {
+  id: number;
+  time: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  scope: string;
+  message: string;
+};
+const agentLabels = {
+  checking: 'Проверка подключения',
+  connected: 'Codex подключён',
+  unauthorized: 'Требуется авторизация',
+  offline: 'Мост недоступен',
+};
 
 const fmt = (n: number, digits = 2) =>
   new Intl.NumberFormat('ru-RU', {
@@ -827,6 +849,144 @@ export default function Home() {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [marketRead, setMarketRead] = useState<MarketRead | null>(null);
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [logs, setLogs] = useState<CalculationLog[]>([]);
+  const logId = useRef(0);
+  const appendLog = useCallback(
+    (level: CalculationLog['level'], scope: string, message: string) => {
+      const entry = {
+        id: ++logId.current,
+        time: new Date().toISOString(),
+        level,
+        scope,
+        message,
+      };
+      setLogs((current) => [...current, entry].slice(-500));
+    },
+    [],
+  );
+  const [agent, setAgent] = useState<AgentConnection>({
+    state: 'checking',
+    account: null,
+    model: null,
+    checkedAt: null,
+  });
+  const [checkingAgent, setCheckingAgent] = useState(false);
+  const [loginPending, setLoginPending] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [startingLogin, setStartingLogin] = useState(false);
+  const loginWindow = useRef<Window | null>(null);
+  const loginRequestBusy = useRef(false);
+  const loginStartedAt = useRef(0);
+  const beginAgentLogin = async () => {
+    if (loginRequestBusy.current) return;
+    const popup = window.open(
+      'about:blank',
+      'aurum-codex-login',
+      'popup,width=520,height=720',
+    );
+    if (!popup) {
+      setLoginError(
+        'Разрешите всплывающее окно для этого сайта и повторите вход.',
+      );
+      return;
+    }
+    popup.opener = null;
+    loginWindow.current = popup;
+    loginRequestBusy.current = true;
+    setStartingLogin(true);
+    setLoginError('');
+    try {
+      const url = await startAgentLogin(window.location.hostname);
+      popup.location.href = url;
+      loginStartedAt.current = Date.now();
+      setLoginPending(true);
+    } catch (error) {
+      popup.close();
+      setLoginError(
+        error instanceof Error ? error.message : 'Не удалось открыть вход.',
+      );
+    } finally {
+      loginRequestBusy.current = false;
+      setStartingLogin(false);
+    }
+  };
+  const agentCheckBusy = useRef(false);
+  const previousAgentState = useRef<AgentConnection['state'] | null>(null);
+  const checkAgent = useCallback(
+    async (signal?: AbortSignal) => {
+      if (agentCheckBusy.current) return;
+      agentCheckBusy.current = true;
+      setCheckingAgent(true);
+      try {
+        const next = await readAgentConnection(
+          window.location.hostname,
+          signal,
+        );
+        if (signal?.aborted) return;
+        setAgent(next);
+        if (next.state === 'connected') {
+          loginStartedAt.current = 0;
+          setLoginPending(false);
+          setLoginError('');
+          loginWindow.current?.close();
+          loginWindow.current = null;
+        } else if (next.loginState === 'pending') {
+          if (!loginStartedAt.current) loginStartedAt.current = Date.now();
+          setLoginPending(true);
+        } else if (next.loginState === 'failed') {
+          loginStartedAt.current = 0;
+          setLoginPending(false);
+          setLoginError(
+            next.loginError ?? 'Вход не завершён. Повторите попытку.',
+          );
+        }
+        if (next.state !== previousAgentState.current) {
+          appendLog(
+            next.state === 'connected' ? 'success' : 'warning',
+            'Агент',
+            agentLabels[next.state],
+          );
+          previousAgentState.current = next.state;
+        }
+      } catch {
+        // An unmounted page cancels its pending status check.
+      } finally {
+        agentCheckBusy.current = false;
+        if (!signal?.aborted) setCheckingAgent(false);
+      }
+    },
+    [appendLog],
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    const initialCheck = window.setTimeout(
+      () => void checkAgent(controller.signal),
+      0,
+    );
+    const timer = window.setInterval(
+      () => {
+        if (document.visibilityState === 'visible')
+          void checkAgent(controller.signal);
+        if (loginPending && Date.now() - loginStartedAt.current > 330_000) {
+          setLoginPending(false);
+          setLoginError(
+            'Время ожидания истекло. Проверьте подключение и повторите вход.',
+          );
+        }
+      },
+      loginPending ? 1500 : 30_000,
+    );
+    const onFocus = () => void checkAgent(controller.signal);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      controller.abort();
+      window.clearTimeout(initialCheck);
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [checkAgent, loginPending]);
   const [loading, setLoading] = useState(true),
     [calculating, setCalculating] = useState(false),
     [error, setError] = useState('');
@@ -845,7 +1005,21 @@ export default function Home() {
     (nextBars: Bar[], reason: string, preserveSelection = false) => {
       const id = ++calculationId.current;
       setCalculating(true);
+      appendLog(
+        'info',
+        'Исследование',
+        `${reason}. Запуск: ${nextBars.length} свечей · ${fingerprint(nextBars)}.`,
+      );
+      const startedAt = performance.now();
       window.setTimeout(() => {
+        if (id !== calculationId.current) {
+          appendLog(
+            'warning',
+            'Исследование',
+            `Запуск №${id} отменён: начат новый расчёт.`,
+          );
+          return;
+        }
         try {
           const result = research(
             nextBars,
@@ -857,18 +1031,28 @@ export default function Home() {
             activeStrategy.current = result.selected?.id ?? null;
             lastAnalyzed.current = result.fingerprint;
             setUpdatedReason(reason);
+            result.log.forEach((message) =>
+              appendLog('info', `Расчёт №${id}`, message),
+            );
+            appendLog(
+              'success',
+              `Расчёт №${id}`,
+              `Завершён за ${fmt(performance.now() - startedAt, 0)} мс.`,
+            );
           }
         } catch (caught) {
-          if (id === calculationId.current)
-            setError(
-              caught instanceof Error ? caught.message : 'Ошибка исследования.',
-            );
+          if (id === calculationId.current) {
+            const message =
+              caught instanceof Error ? caught.message : 'Ошибка исследования.';
+            setError(message);
+            appendLog('error', `Расчёт №${id}`, message);
+          }
         } finally {
           if (id === calculationId.current) setCalculating(false);
         }
       }, 20);
     },
-    [config],
+    [config, appendLog],
   );
 
   const refresh = useCallback(
@@ -876,6 +1060,11 @@ export default function Home() {
       if (dataBusy.current) return;
       dataBusy.current = true;
       setLoading(true);
+      appendLog(
+        'info',
+        'Данные',
+        `Запрос Hyperliquid · ${requestedInterval}${automatic ? ' · автопроверка' : ''}.`,
+      );
       if (!automatic) setError('');
       const controller = new AbortController();
       requestRef.current = controller;
@@ -890,6 +1079,11 @@ export default function Home() {
         setMarket(dataset);
         setSource(`${dataset.venue} · ${dataset.coin}`);
         setIntervalValue(requestedInterval);
+        appendLog(
+          'success',
+          'Данные',
+          `Получено ${dataset.bars.length} закрытых свечей. ${nextFingerprint === lastAnalyzed.current ? 'Новых свечей нет; повторный расчёт не требуется.' : 'Данные изменились.'}`,
+        );
         if (nextFingerprint !== lastAnalyzed.current)
           runResearch(
             dataset.bars,
@@ -902,6 +1096,7 @@ export default function Home() {
           : caught instanceof Error
             ? caught.message
             : 'Не удалось получить свечи.';
+        appendLog('error', 'Данные', message);
         if (!automatic || !market) setError(message);
         if (!market && !experiment)
           runResearch(bars, 'Резервный демонстрационный набор');
@@ -912,7 +1107,7 @@ export default function Home() {
         requestRef.current = null;
       }
     },
-    [bars, experiment, market, runResearch],
+    [bars, experiment, market, runResearch, appendLog],
   );
 
   const refreshRef = useRef(refresh);
@@ -947,8 +1142,18 @@ export default function Home() {
       setBars(nextBars);
       setMarket(null);
       setSource(file.name);
+      appendLog(
+        'success',
+        'Импорт',
+        `${file.name}: проверено ${nextBars.length} свечей.`,
+      );
       runResearch(nextBars, 'Импортирован CSV');
     } catch (caught) {
+      appendLog(
+        'error',
+        'Импорт',
+        caught instanceof Error ? caught.message : 'Не удалось прочитать CSV.',
+      );
       setError(
         caught instanceof Error ? caught.message : 'Не удалось прочитать CSV.',
       );
@@ -983,20 +1188,22 @@ export default function Home() {
     [bars, experiment, structure],
   );
   const runMarketRead = async () => {
+    if (aiAnalyzing) return;
+    const startedAt = performance.now();
+    appendLog(
+      'info',
+      'Анализ рынка',
+      'Рассчитан OHLC-прокси; отправлен запрос Codex по последним 80 свечам.',
+    );
     const fallback = analyzeMarketRead(bars, structure);
     setMarketRead(fallback);
     setAiAnalyzing(true);
     try {
-      const localHost =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1');
       const response = await fetch(
-        localHost
-          ? '/api/local-codex/analyze'
-          : 'http://127.0.0.1:8787/analyze',
+        agentEndpoint('analyze', window.location.hostname),
         {
           method: 'POST',
+          signal: AbortSignal.timeout(120_000),
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             prompt:
@@ -1030,6 +1237,11 @@ export default function Home() {
       const parsed = JSON.parse(raw) as Partial<MarketRead>;
       if (!['up', 'down', 'range'].includes(String(parsed.bias)))
         throw new Error('Codex вернул неизвестное направление.');
+      appendLog(
+        'success',
+        'Анализ рынка',
+        `Ответ Codex получен за ${fmt((performance.now() - startedAt) / 1000, 1)} с.`,
+      );
       setMarketRead({
         ...fallback,
         ...parsed,
@@ -1037,6 +1249,11 @@ export default function Home() {
         commentary: parsed.commentary ?? payload.text,
       });
     } catch (error) {
+      appendLog(
+        'warning',
+        'Анализ рынка',
+        `${error instanceof Error ? error.message : 'Codex недоступен.'} Использован встроенный OHLC-прокси.`,
+      );
       setMarketRead({
         ...fallback,
         aiError:
@@ -1046,6 +1263,7 @@ export default function Home() {
       });
     } finally {
       setAiAnalyzing(false);
+      void checkAgent();
     }
   };
   const exportReport = () =>
@@ -1060,6 +1278,12 @@ export default function Home() {
           structure,
           marketRead,
           experiment,
+          calculationLogs: logs,
+          agent: {
+            state: agent.state,
+            model: agent.model,
+            checkedAt: agent.checkedAt,
+          },
         },
         null,
         2,
@@ -1238,10 +1462,85 @@ export default function Home() {
                   <strong>
                     {calculating
                       ? 'Обучает модель и сравнивает варианты'
-                      : 'Анализ актуален'}
+                      : experiment
+                        ? 'Расчёт завершён'
+                        : 'Ожидает расчёта'}
                   </strong>
                 </div>
                 <i className={calculating ? 'pulse' : ''} />
+              </div>
+              <div className="agent-connection" aria-label="Подключение Codex">
+                <div className="connection-heading">
+                  <output className="connection-status">
+                    <i className={`connection-dot ${agent.state}`} />
+                    {agentLabels[agent.state]}
+                  </output>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Проверить подключение агента"
+                    disabled={checkingAgent}
+                    onClick={() => void checkAgent()}
+                  >
+                    <RefreshCw className={checkingAgent ? 'spinning' : ''} />
+                  </Button>
+                </div>
+                {agent.state === 'connected' && (
+                  <p>
+                    {agent.account ?? 'OAuth-сессия активна'}
+                    {agent.model ? ` · ${agent.model}` : ''}
+                  </p>
+                )}
+                {agent.state === 'unauthorized' && (
+                  <p>
+                    {loginPending
+                      ? 'Подтвердите вход в окне ChatGPT. Подключение обновится автоматически.'
+                      : 'Подключите аккаунт ChatGPT для анализа через Codex.'}
+                  </p>
+                )}
+                {agent.state === 'unauthorized' && (
+                  <Button
+                    className="agent-login-button"
+                    disabled={startingLogin}
+                    onClick={() => void beginAgentLogin()}
+                  >
+                    <ShieldCheck />
+                    {startingLogin
+                      ? 'Открываем вход…'
+                      : loginPending
+                        ? 'Открыть окно входа'
+                        : 'Войти через ChatGPT'}
+                  </Button>
+                )}
+                {loginError && (
+                  <p className="agent-login-error" role="alert">
+                    {loginError}
+                  </p>
+                )}
+                {agent.state === 'offline' && (
+                  <details className="agent-login-help">
+                    <summary>Как подключить Codex</summary>
+                    <p>
+                      Один раз запустите локальный помощник:{' '}
+                      <code>npm run ai:bridge</code>. Затем войдите кнопкой на
+                      сайте. Аккаунт сохраняется на этом компьютере.
+                    </p>
+                  </details>
+                )}
+                <small>
+                  {aiAnalyzing
+                    ? 'Codex выполняет анализ…'
+                    : agent.state === 'connected'
+                      ? 'Готов к запросу анализа'
+                      : 'Доступен встроенный OHLC-прокси'}
+                </small>
+                {agent.checkedAt && (
+                  <small>
+                    Проверено{' '}
+                    {new Date(agent.checkedAt).toLocaleTimeString('ru-RU')} ·
+                    каждые 30 с
+                  </small>
+                )}
               </div>
               <div className={`signal ${tradingSignal.side}`}>
                 <div className="signal-kicker">
@@ -1411,6 +1710,12 @@ export default function Home() {
               <Activity />
               Наблюдения
             </TabsTrigger>
+            <TabsTrigger value="logs">
+              <ListChecks /> Логи вычислений{' '}
+              {logs.length > 0 && (
+                <span className="log-count">{logs.length}</span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="settings">
               <Settings2 />
               Дополнительные настройки
@@ -1560,6 +1865,80 @@ export default function Home() {
                     <h3>Подтверждённых событий пока нет</h3>
                     <p>Агент продолжит проверку после следующего закрытия.</p>
                   </div>
+                )}
+              </div>
+            </section>
+          </TabsContent>
+          <TabsContent value="logs">
+            <section className="panel tab-panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Логи вычислений</h2>
+                  <p className="section-description">
+                    Данные, обучение модели, выбор стратегии и обращения к
+                    Codex. Последние 500 записей текущей сессии; время местное.
+                  </p>
+                </div>
+                <div className="log-actions">
+                  <Button
+                    variant="outline"
+                    disabled={!logs.length}
+                    onClick={() =>
+                      download(
+                        'aurum-calculation-logs.json',
+                        JSON.stringify(logs, null, 2),
+                        'application/json',
+                      )
+                    }
+                  >
+                    <ArrowDownToLine /> Скачать JSON
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!logs.length}
+                    onClick={() => setLogs([])}
+                  >
+                    Очистить
+                  </Button>
+                </div>
+              </div>
+              <div
+                className="calculation-log"
+                role="log"
+                aria-label="Журнал вычислений"
+                aria-live="polite"
+                aria-relevant="additions"
+              >
+                {logs.length ? (
+                  logs.map((entry) => (
+                    <article
+                      className={`log-entry ${entry.level}`}
+                      key={entry.id}
+                    >
+                      <time dateTime={entry.time}>
+                        {new Date(entry.time).toLocaleTimeString('ru-RU')}
+                      </time>
+                      <span className="log-level">
+                        {
+                          {
+                            info: 'ИНФО',
+                            success: 'ГОТОВО',
+                            warning: 'ВНИМАНИЕ',
+                            error: 'ОШИБКА',
+                          }[entry.level]
+                        }
+                      </span>
+                      <div>
+                        <strong>{entry.scope}</strong>
+                        <p>{entry.message}</p>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="section-description">
+                    Журнал пуст. Записи появятся при следующем обновлении данных
+                    или запуске расчёта.
+                  </p>
                 )}
               </div>
             </section>
