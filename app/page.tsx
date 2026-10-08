@@ -59,6 +59,7 @@ import {
 } from '@/lib/hyperliquid';
 import { analyzeMarket } from '@/lib/market-analysis';
 import { makeTradingSignal } from '@/lib/trading-signal';
+import { findEntryPatterns, type EntryPattern } from '@/lib/entry-patterns';
 import { analyzeMarketRead, type MarketRead } from '@/lib/market-read';
 import {
   loadResearchSnapshot,
@@ -858,6 +859,12 @@ export default function Home() {
     fingerprint: string;
     read: MarketRead;
   } | null>(null);
+  const [entrySearch, setEntrySearch] = useState<{
+    fingerprint: string;
+    interval: HLInterval;
+    patterns: EntryPattern[];
+    searchedAt: string;
+  } | null>(null);
   const [savedResult, setSavedResult] = useState(false);
   const configRef = useRef(config);
   const experimentRef = useRef(experiment);
@@ -1302,6 +1309,23 @@ export default function Home() {
       ),
     [bars, experiment, structure],
   );
+  const entrySearchCurrent =
+    entrySearch?.fingerprint === fingerprint(bars) &&
+    entrySearch.interval === interval;
+  const runEntrySearch = () => {
+    const patterns = findEntryPatterns(bars);
+    setEntrySearch({
+      fingerprint: fingerprint(bars),
+      interval,
+      patterns,
+      searchedAt: new Date().toISOString(),
+    });
+    appendLog(
+      'info',
+      'Модели для входа',
+      `Проверены 3 модели по закрытым свечам. Найдено: ${patterns.length}; подтверждено: ${patterns.filter((pattern) => pattern.status === 'confirmed').length}.`,
+    );
+  };
   const runMarketRead = async () => {
     if (aiAnalyzing) return;
     const startedAt = performance.now();
@@ -1395,6 +1419,7 @@ export default function Home() {
           bars,
           structure,
           marketRead,
+          entrySearch: entrySearchCurrent ? entrySearch : null,
           experiment,
           calculationLogs: logs,
           agent: {
@@ -1512,6 +1537,9 @@ export default function Home() {
               <RefreshCw className={loading ? 'spinning' : ''} />
               Обновить
             </Button>
+            <Button onClick={runEntrySearch} disabled={loading}>
+              <ListChecks /> Найти модели для входа
+            </Button>
             <Button
               onClick={() => void runMarketRead()}
               disabled={loading || aiAnalyzing || loggingOut}
@@ -1570,6 +1598,112 @@ export default function Home() {
               </span>
               <span>Пивот появляется через 3 свечи</span>
             </div>
+            <section
+              className="entry-search"
+              aria-label="Поиск моделей для входа"
+            >
+              <div className="entry-search-head">
+                <div>
+                  <span className="eyebrow">
+                    ТОЧКА ВХОДА / {interval.toUpperCase()}
+                  </span>
+                  <h2>Модели для входа</h2>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={runEntrySearch}
+                  disabled={loading}
+                >
+                  <ScanSearch />{' '}
+                  {entrySearch ? 'Повторить поиск' : 'Найти модели'}
+                </Button>
+              </div>
+              <p className="entry-search-intro">
+                Пробой и ретест · вынос уровня и возврат · откат по тренду. По
+                закрытым свечам, с отношением цели к риску от 1,5.
+              </p>
+              <div aria-live="polite">
+                {!entrySearch ? (
+                  <p className="entry-empty">
+                    Запустите поиск, чтобы увидеть конкретные условия входа и
+                    отмены.
+                  </p>
+                ) : !entrySearchCurrent ? (
+                  <p className="entry-empty">
+                    Свечи или таймфрейм изменились. Повторите поиск для
+                    актуальных уровней.
+                  </p>
+                ) : (
+                  <>
+                    <small className="entry-search-meta">
+                      {source} · последняя свеча {utc(last.time, true)} UTC ·
+                      поиск {utc(entrySearch.searchedAt, true)} UTC
+                    </small>
+                    {entrySearch.patterns.length === 0 ? (
+                      <p className="entry-empty">
+                        Подходящих моделей сейчас нет. Проверены все 3 модели:
+                        условия входа или минимальное отношение цели к риску не
+                        выполнены. Повторите поиск после следующей закрытой
+                        свечи.
+                      </p>
+                    ) : (
+                      <div className="entry-patterns">
+                        {entrySearch.patterns.map((pattern) => (
+                          <article
+                            className={`entry-pattern ${pattern.side}`}
+                            key={pattern.id}
+                          >
+                            <div className="entry-pattern-title">
+                              <h3>{pattern.name}</h3>
+                              <b>{pattern.side.toUpperCase()}</b>
+                            </div>
+                            <span className={`entry-status ${pattern.status}`}>
+                              {pattern.status === 'confirmed'
+                                ? 'Условия выполнены'
+                                : 'Ждём подтверждения'}
+                            </span>
+                            <p>{pattern.reason}</p>
+                            <div className="entry-levels">
+                              <span>
+                                {pattern.status === 'confirmed'
+                                  ? 'Расчётный вход'
+                                  : 'Триггер закрытия'}
+                                <b>{fmt(pattern.entry)}</b>
+                              </span>
+                              <span>
+                                Стоп<b>{fmt(pattern.stop)}</b>
+                              </span>
+                              <span>
+                                Цель<b>{fmt(pattern.target)}</b>
+                              </span>
+                              <span>
+                                Цель / риск<b>{fmt(pattern.rr, 1)} : 1</b>
+                              </span>
+                            </div>
+                            <small>
+                              {pattern.targetKind === 'structure'
+                                ? 'Цель — ближайший подтверждённый противоположный экстремум.'
+                                : 'Цель — проекция 2R: противоположный экстремум не найден.'}
+                            </small>
+                            <p>
+                              <strong>Подтверждение:</strong>{' '}
+                              {pattern.confirmation}
+                            </p>
+                            <p>
+                              <strong>Отмена:</strong> {pattern.invalidation}
+                            </p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                    <small className="entry-search-meta">
+                      Учебные сценарии по OHLC. Выполнение условий не означает
+                      допуск стратегии; проверка и бэктест показаны отдельно.
+                    </small>
+                  </>
+                )}
+              </div>
+            </section>
           </div>
           <aside className="analysis-rail">
             <section className="panel agent-card">
