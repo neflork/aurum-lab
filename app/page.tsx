@@ -1157,7 +1157,9 @@ export default function Home() {
           'Данные',
           `Получено ${dataset.bars.length} закрытых свечей. ${reusable ? 'История и настройки совпадают; используем готовый расчёт.' : 'Требуется обновить расчёт.'}`,
         );
-        if (!reusable)
+        if (reusable)
+          setUpdatedReason('История проверена; использован готовый расчёт');
+        else
           runResearch(
             dataset.bars,
             automatic ? 'Новая закрытая свеча' : 'Данные Hyperliquid обновлены',
