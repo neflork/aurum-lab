@@ -20,6 +20,18 @@ export type MarketRead = {
 
 const dayKey = (time: string) => new Date(time).toISOString().slice(0, 10);
 
+// Codex returns a fraction; accept legacy responses on a 0–100 scale too.
+export function normalizeAIConfidence(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 100
+  )
+    throw new Error('Codex вернул некорректную оценку уверенности.');
+  return Math.round(value <= 1 ? value * 100 : value);
+}
+
 export function analyzeMarketRead(
   bars: Bar[],
   structure: MarketStructure,

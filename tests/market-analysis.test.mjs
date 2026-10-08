@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmedPivots, analyzeMarket } from '../lib/market-analysis.ts';
-import { analyzeMarketRead } from '../lib/market-read.ts';
+import {
+  analyzeMarketRead,
+  normalizeAIConfidence,
+} from '../lib/market-read.ts';
 
 const bar = (index, open, high, low, close) => ({
   time: new Date(Date.UTC(2025, 0, 1, index)).toISOString(),
@@ -80,4 +83,14 @@ test('market read combines structure, day open and candle pressure', () => {
   assert.equal(read.bias, 'up');
   assert.equal(read.flow, 'buying');
   assert.match(read.scenario, /long/);
+});
+
+test('AI confidence fractions and legacy scores share the displayed 0–100 scale', () => {
+  assert.equal(normalizeAIConfidence(0.62), 62);
+  assert.equal(normalizeAIConfidence(62), 62);
+  assert.equal(normalizeAIConfidence(0), 0);
+  assert.equal(normalizeAIConfidence(1), 100);
+  assert.equal(normalizeAIConfidence(100), 100);
+  for (const invalid of [undefined, null, '0.62', NaN, Infinity, -0.1, 101])
+    assert.throws(() => normalizeAIConfidence(invalid), /некорректную оценку/);
 });

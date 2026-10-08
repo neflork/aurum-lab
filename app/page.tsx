@@ -60,7 +60,11 @@ import {
 import { analyzeMarket } from '@/lib/market-analysis';
 import { makeTradingSignal } from '@/lib/trading-signal';
 import { findEntryPatterns, type EntryPattern } from '@/lib/entry-patterns';
-import { analyzeMarketRead, type MarketRead } from '@/lib/market-read';
+import {
+  analyzeMarketRead,
+  normalizeAIConfidence,
+  type MarketRead,
+} from '@/lib/market-read';
 import {
   loadResearchSnapshot,
   saveResearchSnapshot,
@@ -1349,7 +1353,7 @@ export default function Home() {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             prompt:
-              'Проанализируй закрытые бары xyz:GOLD для учебной платформы. Определи направление рынка, направление от открытия текущего UTC-дня, свечной order-flow proxy и SMT proxy. Объясни сценарий и условия отмены. Данные: ' +
+              'Проанализируй закрытые бары xyz:GOLD для учебной платформы. Определи направление рынка, направление от открытия текущего UTC-дня, свечной order-flow proxy и SMT proxy. Объясни сценарий и условия отмены. confidence — субъективная уверенность анализа от 0 до 1 (0.62 означает 62 из 100), не вероятность прибыльной сделки. Данные: ' +
               JSON.stringify({
                 bars: bars.slice(-80),
                 structure: {
@@ -1388,6 +1392,7 @@ export default function Home() {
         ...fallback,
         ...parsed,
         source: 'ai',
+        confidence: normalizeAIConfidence(parsed.confidence),
         commentary: parsed.commentary ?? payload.text,
       });
     } catch (error) {
@@ -1868,9 +1873,11 @@ export default function Home() {
                     </span>
                     <span>
                       {marketRead.source === 'ai'
-                        ? 'Оценка Codex'
+                        ? 'Уверенность анализа Codex'
                         : 'Согласованность факторов'}{' '}
-                      <b>{marketRead.confidence}/100</b>
+                      <b title="Условная оценка уверенности анализа, не вероятность прибыльной сделки">
+                        {marketRead.confidence}/100
+                      </b>
                     </span>
                   </div>
                   <p>{marketRead.scenario}</p>

@@ -131,7 +131,7 @@ const run = async () => {
         // supported Codex model without changing the frontend.
         model,
         instructions:
-          'Ты аналитик рынка для учебного проекта. Не выдавай финансовую рекомендацию и не придумывай данные. Верни только JSON без markdown по схеме: {"bias":"up|down|range","biasLabel":"вверх|вниз|нейтрально","dayOpen":number,"dayLabel":string,"flow":"buying|selling|balanced","flowLabel":string,"smtLabel":string,"confidence":number,"scenario":string,"reasons":string[],"commentary":string}. Если настоящего order flow или второго инструмента нет, явно назови вывод proxy.',
+          'Ты аналитик рынка для учебного проекта. Не выдавай финансовую рекомендацию и не придумывай данные. Верни только JSON без markdown по схеме: {"bias":"up|down|range","biasLabel":"вверх|вниз|нейтрально","dayOpen":number,"dayLabel":string,"flow":"buying|selling|balanced","flowLabel":string,"smtLabel":string,"confidence":number,"scenario":string,"reasons":string[],"commentary":string}. confidence — субъективная уверенность анализа по шкале от 0 до 1 (например, 0.62), не вероятность прибыльной сделки. Если настоящего order flow или второго инструмента нет, явно назови вывод proxy.',
       }))
         chunks.push(chunk);
       const text = chunks.join('');
