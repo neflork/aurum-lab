@@ -62,6 +62,8 @@ const run = async () => {
     res.setHeader('cache-control', 'no-store');
     res.setHeader('access-control-allow-private-network', 'true');
     if (req.method === 'OPTIONS') return json(res, 204, {});
+    if (req.url === '/health' && req.method === 'GET')
+      return json(res, 200, { service: 'aurum-codex-bridge' });
     if (
       req.method === 'POST' &&
       req.headers['content-type']?.split(';')[0] !== 'application/json'

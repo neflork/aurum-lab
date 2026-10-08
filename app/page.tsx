@@ -61,6 +61,11 @@ import { analyzeMarket } from '@/lib/market-analysis';
 import { makeTradingSignal } from '@/lib/trading-signal';
 import { analyzeMarketRead, type MarketRead } from '@/lib/market-read';
 import {
+  loadResearchSnapshot,
+  saveResearchSnapshot,
+  researchMatches,
+} from '@/lib/research-cache';
+import {
   chartCursor,
   clamp,
   priceViewport,
@@ -849,7 +854,15 @@ export default function Home() {
   const [interval, setIntervalValue] = useState<HLInterval>('1h');
   const [config, setConfig] = useState<Config>({ ...defaults });
   const [experiment, setExperiment] = useState<Experiment | null>(null);
-  const [marketRead, setMarketRead] = useState<MarketRead | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<{
+    fingerprint: string;
+    read: MarketRead;
+  } | null>(null);
+  const [savedResult, setSavedResult] = useState(false);
+  const configRef = useRef(config);
+  const experimentRef = useRef(experiment);
+  configRef.current = config;
+  experimentRef.current = experiment;
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [logs, setLogs] = useState<CalculationLog[]>([]);
   const logId = useRef(0);
@@ -1032,9 +1045,29 @@ export default function Home() {
     requestRef = useRef<AbortController | null>(null);
   const dataBusy = useRef(false),
     calculationId = useRef(0),
-    lastAnalyzed = useRef(''),
     activeStrategy = useRef<string | null>(null);
   const structure = useMemo(() => analyzeMarket(bars), [bars]);
+  const marketRead = useMemo(() => {
+    if (analysisResult?.fingerprint === fingerprint(bars))
+      return analysisResult.read;
+    return market || source !== 'Синтетический резервный набор'
+      ? analyzeMarketRead(bars, structure)
+      : null;
+  }, [analysisResult, bars, structure, market, source]);
+
+  useEffect(() => {
+    if (
+      !market ||
+      !experiment ||
+      !researchMatches(experiment, bars, experiment.config)
+    )
+      return;
+    try {
+      saveResearchSnapshot(window.localStorage, { market, experiment });
+    } catch {
+      /* Storage may be disabled; the live calculation still works. */
+    }
+  }, [market, experiment, bars]);
 
   const runResearch = useCallback(
     (nextBars: Bar[], reason: string, preserveSelection = false) => {
@@ -1058,13 +1091,13 @@ export default function Home() {
         try {
           const result = research(
             nextBars,
-            config,
+            configRef.current,
             preserveSelection ? activeStrategy.current : null,
           );
           if (id === calculationId.current) {
             setExperiment(result);
+            experimentRef.current = result;
             activeStrategy.current = result.selected?.id ?? null;
-            lastAnalyzed.current = result.fingerprint;
             setUpdatedReason(reason);
             result.log.forEach((message) =>
               appendLog('info', `Расчёт №${id}`, message),
@@ -1087,7 +1120,7 @@ export default function Home() {
         }
       }, 20);
     },
-    [config, appendLog],
+    [appendLog],
   );
 
   const refresh = useCallback(
@@ -1109,17 +1142,22 @@ export default function Home() {
           requestedInterval,
           controller.signal,
         );
-        const nextFingerprint = fingerprint(dataset.bars);
+        const reusable = researchMatches(
+          experimentRef.current,
+          dataset.bars,
+          configRef.current,
+        );
         setBars(dataset.bars);
         setMarket(dataset);
         setSource(`${dataset.venue} · ${dataset.coin}`);
         setIntervalValue(requestedInterval);
+        setSavedResult(false);
         appendLog(
           'success',
           'Данные',
-          `Получено ${dataset.bars.length} закрытых свечей. ${nextFingerprint === lastAnalyzed.current ? 'Новых свечей нет; повторный расчёт не требуется.' : 'Данные изменились.'}`,
+          `Получено ${dataset.bars.length} закрытых свечей. ${reusable ? 'История и настройки совпадают; используем готовый расчёт.' : 'Требуется обновить расчёт.'}`,
         );
-        if (nextFingerprint !== lastAnalyzed.current)
+        if (!reusable)
           runResearch(
             dataset.bars,
             automatic ? 'Новая закрытая свеча' : 'Данные Hyperliquid обновлены',
@@ -1132,8 +1170,12 @@ export default function Home() {
             ? caught.message
             : 'Не удалось получить свечи.';
         appendLog('error', 'Данные', message);
+        if (experimentRef.current)
+          setUpdatedReason(
+            'Свежие данные недоступны; показан предыдущий расчёт',
+          );
         if (!automatic || !market) setError(message);
-        if (!market && !experiment)
+        if (!market && !experimentRef.current)
           runResearch(bars, 'Резервный демонстрационный набор');
       } finally {
         window.clearTimeout(timeout);
@@ -1155,12 +1197,42 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void refreshRef.current('1h'), 0);
+    let initialInterval: HLInterval = '1h';
+    try {
+      const saved = loadResearchSnapshot(window.localStorage);
+      if (saved) {
+        initialInterval = saved.market.interval;
+        configRef.current = saved.experiment.config;
+        experimentRef.current = saved.experiment;
+        activeStrategy.current = saved.experiment.selected?.id ?? null;
+        setBars(saved.market.bars);
+        setMarket(saved.market);
+        setSource(`${saved.market.venue} · ${saved.market.coin}`);
+        setIntervalValue(initialInterval);
+        setConfig(saved.experiment.config);
+        setExperiment(saved.experiment);
+        setSavedResult(true);
+        setUpdatedReason(
+          'Восстановлен последний расчёт; проверяем свежие свечи',
+        );
+        appendLog(
+          'info',
+          'Исследование',
+          'Восстановлен сохранённый расчёт. Проверяем актуальность истории.',
+        );
+      }
+    } catch {
+      /* Continue normally when browser storage is unavailable. */
+    }
+    const timer = window.setTimeout(
+      () => void refreshRef.current(initialInterval, true),
+      0,
+    );
     return () => {
       window.clearTimeout(timer);
       cancelPending();
     };
-  }, [cancelPending]);
+  }, [cancelPending, appendLog]);
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible')
@@ -1176,6 +1248,7 @@ export default function Home() {
       const nextBars = parseCSV(await file.text());
       setBars(nextBars);
       setMarket(null);
+      setSavedResult(false);
       setSource(file.name);
       appendLog(
         'success',
@@ -1219,7 +1292,12 @@ export default function Home() {
     selected = experiment?.selected;
   const latestEvent = structure.events.at(-1);
   const tradingSignal = useMemo(
-    () => makeTradingSignal(bars, experiment, structure),
+    () =>
+      makeTradingSignal(
+        bars,
+        experiment?.fingerprint === fingerprint(bars) ? experiment : null,
+        structure,
+      ),
     [bars, experiment, structure],
   );
   const runMarketRead = async () => {
@@ -1231,6 +1309,9 @@ export default function Home() {
       'Рассчитан OHLC-прокси; отправлен запрос Codex по последним 80 свечам.',
     );
     const fallback = analyzeMarketRead(bars, structure);
+    const analysisFingerprint = fingerprint(bars);
+    const setMarketRead = (read: MarketRead) =>
+      setAnalysisResult({ fingerprint: analysisFingerprint, read });
     setMarketRead(fallback);
     setAiAnalyzing(true);
     try {
@@ -1590,15 +1671,26 @@ export default function Home() {
               </div>
               <div className={`signal ${tradingSignal.side}`}>
                 <div className="signal-kicker">
-                  <span>Фьючерсный сценарий</span>
-                  <small>до закрытия следующей {interval} свечи</small>
+                  <span>
+                    {savedResult
+                      ? 'Сохранённый сценарий'
+                      : 'Фьючерсный сценарий'}
+                  </span>
+                  <small>
+                    {savedResult
+                      ? loading
+                        ? 'Проверяем актуальность данных'
+                        : 'Актуальность не подтверждена'
+                      : `до закрытия следующей ${interval} свечи`}
+                  </small>
                 </div>
                 <strong>{tradingSignal.label}</strong>
                 <div className="direction-line">
-                  Ожидаемое направление: <b>{tradingSignal.direction}</b>
+                  Направление по закрытым свечам:{' '}
+                  <b>{marketRead?.biasLabel ?? tradingSignal.direction}</b>
                 </div>
                 <div className="agreement">
-                  <span>Согласованность фильтров</span>
+                  <span>Согласованность фильтров входа</span>
                   <b>{tradingSignal.agreement}%</b>
                   <i>
                     <em style={{ width: `${tradingSignal.agreement}%` }} />
@@ -1639,7 +1731,10 @@ export default function Home() {
                       SMT <b>{marketRead.smtLabel}</b>
                     </span>
                     <span>
-                      Уверенность <b>{marketRead.confidence}/100</b>
+                      {marketRead.source === 'ai'
+                        ? 'Оценка Codex'
+                        : 'Согласованность факторов'}{' '}
+                      <b>{marketRead.confidence}/100</b>
                     </span>
                   </div>
                   <p>{marketRead.scenario}</p>
@@ -1683,7 +1778,11 @@ export default function Home() {
                   </span>
                 </div>
               )}
-              <p className="signal-validity">{tradingSignal.invalidation}</p>
+              <p className="signal-validity">
+                {savedResult
+                  ? 'Это последний сохранённый расчёт. Его актуальность ещё не подтверждена свежими данными.'
+                  : tradingSignal.invalidation}
+              </p>
               {calculating && experiment && (
                 <p className="recalculation-note">
                   Идёт проверка новой свечи. До завершения показано предыдущее
