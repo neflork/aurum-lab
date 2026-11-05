@@ -45,6 +45,11 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   const localCodexProxy = {
+    '/api/research': {
+      target: `http://127.0.0.1:${process.env.AURUM_DB_PORT ?? 8788}`,
+      changeOrigin: true,
+      rewrite: (path: string) => path.replace(/^\/api\/research/, ''),
+    },
     '/api/local-codex': {
       target: `http://127.0.0.1:${process.env.AURUM_AI_PORT ?? 8787}`,
       changeOrigin: true,

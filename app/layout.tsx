@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 export const metadata: Metadata = {
   icons: { icon: '/favicon.svg' },
-  title: 'Aurum Lab — исследование XAU/USD',
+  title: 'Aurum — интеллектуальная система торговых стратегий',
   description:
-    'Учебная лаборатория поиска торговых стратегий, машинного обучения и бэктестинга по золоту.',
+    'Интеллектуальная система поиска торговых стратегий и формирования торговых сигналов на основе искусственного интеллекта.',
 };
 export default function RootLayout({
   children,

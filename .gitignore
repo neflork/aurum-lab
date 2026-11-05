@@ -38,3 +38,8 @@ next-env.d.ts
 /work/
 
 *.tsbuildinfo
+/data/
+
+# local temporary files and generated reports
+/tmp/
+/output/

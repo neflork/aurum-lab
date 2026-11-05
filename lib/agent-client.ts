@@ -2,6 +2,7 @@ export type AgentConnection = {
   state: 'checking' | 'connected' | 'unauthorized' | 'offline';
   account: string | null;
   model: string | null;
+  effort?: string;
   checkedAt: string | null;
   error?: string;
   loginState?: 'idle' | 'pending' | 'completed' | 'failed';
@@ -108,6 +109,10 @@ export async function readAgentConnection(
           ? payload.model
           : null,
       checkedAt: new Date().toISOString(),
+      effort:
+        'effort' in payload && typeof payload.effort === 'string'
+          ? payload.effort
+          : undefined,
       loginState: ['idle', 'pending', 'completed', 'failed'].includes(
         login?.state ?? '',
       )
