@@ -43,3 +43,8 @@ next-env.d.ts
 # local temporary files and generated reports
 /tmp/
 /output/
+
+# local coursework materials
+/build_aurum_report.py
+/docs/coursework-plan.md
+/docs/experiment-protocol.md
